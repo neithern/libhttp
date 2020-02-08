@@ -1,0 +1,8 @@
+.DS_Store
+.vscode/c_cpp_properties.json
+.vscode/settings.json
+build
+CMakeFiles
+CMakeCache.txt
+cmake_install.cmake
+*.vcxproj.filters
