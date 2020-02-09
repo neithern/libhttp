@@ -13,13 +13,6 @@ namespace http
 
 static const size_t _max_request_body_ = 8 * 1024 * 1024;
 
-struct _write_head_req : public uv_write_t
-{
-    uv_buf_t buf = {nullptr, 0};
-    // for response header
-    std::string data;
-};
-
 static const char* status_message(int status)
 {
     switch (status)
@@ -47,6 +40,13 @@ static const char* status_message(int status)
     }
 }
 
+struct _write_head_req : public uv_write_t
+{
+    uv_buf_t buf = {nullptr, 0};
+    // for response header
+    std::string data;
+};
+
 struct _write_data_req : public uv_write_t
 {
     uv_buf_t buf = {nullptr, 0};
@@ -55,6 +55,7 @@ struct _write_data_req : public uv_write_t
     // for content_provider.setter
     void* ptr = nullptr;
     recycler recycler;
+
     void recycle()
     {
         if (recycler && ptr != nullptr)
@@ -308,7 +309,10 @@ protected:
             return content_to_write_ == 0 ? 0 : UV_E_USER_CANCELED;
 
         if ((ssize_t)data_req.buf.len < 0)
+        {
+            printf("%p:%p read content: %s\n", this, socket, uv_err_name(data_req.buf.len));
             return data_req.buf.len;
+        }
         else if (data_req.buf.len == 0)
         {
             if (write_timer_ == nullptr)
@@ -325,13 +329,13 @@ protected:
         return uv_write(&data_req, socket_, &data_req.buf, 1, on_written_cb);
     }
 
-    int on_written()
+    int on_written(uv_write_t* req)
     {
-        _write_data_req& req = write_data_req_;
-        req.recycle();
+        if (req == &write_data_req_)
+            write_data_req_.recycle();
 
         if (is_write_done())
-            return 0; // UV_E_USER_CANCELED;
+            return 0;
         return start_next_write();
     }
 
@@ -341,9 +345,12 @@ protected:
             keep_alive_ = false;
         printf("%p:%p end: %s, %s, %s, %d\n", this, socket_, error_code == 0 ? "ok" : uv_err_name(error_code), request_.url.c_str(), keep_alive_ ? "alive" : "close", ref_count_);
 
-        const content_provider& provider = response_.content_provider;
+        content_provider& provider = response_.content_provider;
         if (provider.releaser)
+        {
             provider.releaser();
+            provider.clear();
+        }
 
 #ifdef _ENABLE_KEEP_ALIVE_
         if (keep_alive_)
@@ -364,17 +371,6 @@ protected:
 
     void close_socket()
     {
-        uv_cancel((uv_req_t*)&write_head_req_);
-        uv_cancel((uv_req_t*)&write_data_req_);
-        uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
-        uv_handle_set_data((uv_handle_t*)&write_data_req_, nullptr);
-
-        _write_data_req& req = write_data_req_;
-        if (req.capacity > 0)
-            buffer_pool_->recycle_buffer(req.buf);
-        req.capacity = 0;
-        req.recycle();
-
         uv_timer_t* timer = write_timer_;
         write_timer_ = nullptr;
         if (timer != nullptr)
@@ -388,6 +384,20 @@ protected:
         socket_ = nullptr;
         if (tcp != nullptr)
         {
+            uv_cancel((uv_req_t*)&write_head_req_);
+            uv_cancel((uv_req_t*)&write_data_req_);
+            uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
+            uv_handle_set_data((uv_handle_t*)&write_data_req_, nullptr);
+
+            _write_data_req& req = write_data_req_;
+            if (req.capacity > 0)
+            {
+                buffer_pool_->recycle_buffer(req.buf);
+                req.capacity = 0;
+            }
+            else
+                req.recycle();
+
             // printf("%p:%p closing socket\n", this, tcp);
             uv_handle_set_data((uv_handle_t*)tcp, nullptr);
             uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
@@ -404,7 +414,7 @@ private:
         int r = status;
         if (status >= 0)
         {
-            r = p_this->on_written();
+            r = p_this->on_written(req);
             if (r < 0 && r != UV_E_USER_CANCELED)
                 printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
         }
@@ -481,13 +491,14 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         res.range_end = length - 1;
 
     int flags = UV_FS_O_RDONLY;
-    flags |= has_range ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL;
+    // flags |= has_range ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL;
 
     uv_fs_t open_req;
     uv_file fs_file = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
     uv_fs_req_cleanup(&open_req);
-    if (fs_file == -1)
+    if (fs_file < 0)
     {
+        printf("open file: %s, %s\n", path.c_str(), uv_err_name(fs_file));
         res.status_code = 404;
         return false;
     }
@@ -508,8 +519,10 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     res.content_length = length;
     res.content_provider.releaser = [=]() {
         uv_fs_t close_req;
-        uv_fs_close(nullptr, &close_req, fs_file, nullptr);
+        int nread = uv_fs_close(nullptr, &close_req, fs_file, nullptr);
         uv_fs_req_cleanup(&close_req);
+        if (nread < 0)
+            printf("close file %d: %s, %s\n", fs_file, path.c_str(), uv_err_name(nread));
     };
     res.content_provider.reader = [=](char* buffer, size_t size, int64_t offset) {
         uv_fs_t read_req;
@@ -517,35 +530,38 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         if (offset + size > read_end)
             size = read_end > offset ? read_end - offset : 0;
         uv_buf_t buf = uv_buf_init(buffer, size);
-        size = uv_fs_read(nullptr, &read_req, fs_file, &buf, 1, offset, nullptr);
-        // printf("read at: %lld, %zu bytes\n", offset, size);
-        return size;
+        int nread = uv_fs_read(nullptr, &read_req, fs_file, &buf, 1, offset, nullptr);
+        uv_fs_req_cleanup(&read_req);
+        if (nread < 0)
+            printf("read file %d: %s, %s\n", fs_file, path.c_str(), uv_err_name(nread));
+        return nread;
     };
-    // or
-    // res.content_provider.setter = [=](char*& data, size_t& size, int64_t offset, recycler& recycler) {
-    //     uv_fs_t read_req;
-    //     uv_buf_t* buf = new uv_buf_t;
-    //     if (buffer_pool_->get_buffer(65536, *buf))
-    //     {
-    //         offset += read_begin;
-    //         if (offset + size > read_end)
-    //             size = read_end > offset ? read_end - offset : 0;
-    //         data = buf->base;
-    //         size = uv_fs_read(nullptr, &read_req, fs_file, buf, 1, offset, nullptr);
-    //         recycler = [=](void* ptr) {
-    //             uv_buf_t* p_buf = (uv_buf_t*)ptr;
-    //             buffer_pool_->recycle_buffer(*p_buf);
-    //             delete p_buf;
-    //         };
-    //         return buf;
-    //     }
-    //     else
-    //     {
-    //         data = nullptr;
-    //         size = 0;
-    //         return (uv_buf_t*)nullptr;
-    //     }
-    // };
+    /* or
+    res.content_provider.setter = [=](char*& data, size_t& size, int64_t offset, recycler& recycler) {
+        uv_fs_t read_req;
+        uv_buf_t* buf = new uv_buf_t;
+        if (buffer_pool_->get_buffer(65536, *buf))
+        {
+            offset += read_begin;
+            if (offset + size > read_end)
+                size = read_end > offset ? read_end - offset : 0;
+            data = buf->base;
+            size = uv_fs_read(nullptr, &read_req, fs_file, buf, 1, offset, nullptr);
+            uv_fs_req_cleanup(&read_req);
+            recycler = [=](void* ptr) {
+                uv_buf_t* p_buf = (uv_buf_t*)ptr;
+                buffer_pool_->recycle_buffer(*p_buf);
+                delete p_buf;
+            };
+            return buf;
+        }
+        else
+        {
+            data = nullptr;
+            size = 0;
+            return (uv_buf_t*)nullptr;
+        }
+    };*/
     return true;
 }
 
