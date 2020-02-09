@@ -491,7 +491,7 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         res.range_end = length - 1;
 
     int flags = UV_FS_O_RDONLY;
-    // flags |= has_range ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL;
+    flags |= has_range ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL;
 
     uv_fs_t open_req;
     uv_file fs_file = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
