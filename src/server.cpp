@@ -52,6 +52,7 @@ protected:
 
     bool keep_alive_ = false;
     uv_stream_t* socket_ = nullptr;
+    uv_timer_t* write_timer_ = nullptr;
 
     _responser(std::shared_ptr<buffer_pool> buffer_pool, const std::unordered_map<std::string, on_router>& router_map, const std::vector<std::pair<std::regex, on_router>>& router_list)
         : parser(true, buffer_pool), router_map_(router_map), router_list_(router_list)
@@ -251,8 +252,20 @@ protected:
         }
         else
             return UV_E_USER_CANCELED;
+
         if ((ssize_t)data_req.buf.len < 0)
             return data_req.buf.len;
+        else if (data_req.buf.len == 0)
+        {
+            if (write_timer_ == nullptr)
+            {
+                write_timer_ = new uv_timer_t;
+                uv_timer_init(loop_, write_timer_);
+                uv_handle_set_data((uv_handle_t*)write_timer_, this);
+            }
+            uv_timer_start(write_timer_, on_write_timer_cb, 10, 0);
+            return 0;
+        }
 
         content_written_ += data_req.buf.len;
         return uv_write(&data_req, socket_, &data_req.buf, 1, on_written_cb);
@@ -305,6 +318,15 @@ protected:
             uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
         }
 
+        uv_timer_t* timer = write_timer_;
+        write_timer_ = nullptr;
+        if (timer != nullptr)
+        {
+            uv_handle_set_data((uv_handle_t*)timer, nullptr);
+            uv_timer_stop(timer);
+            delete timer;
+        }
+
         uv_cancel((uv_req_t*)&write_head_req_);
         uv_cancel((uv_req_t*)&write_data_req_);
         uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
@@ -347,6 +369,16 @@ private:
         bool done = p_this->is_write_done();
         if (r < 0 || done)
             p_this->on_end(r);
+    }
+
+    static void on_write_timer_cb(uv_timer_t* timer)
+    {
+        _responser* p_this = (_responser*)uv_req_get_data((uv_req_t*)timer);
+        uv_timer_stop(timer);
+        if (p_this == nullptr)
+            return;
+
+        on_written_cb(&p_this->write_data_req_, 0);
     }
 };
 

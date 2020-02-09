@@ -137,13 +137,14 @@ protected:
             std::string location = p->second;
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
-                uv_work_t* req = new uv_work_t;
-                uv_req_set_data((uv_req_t*)req, this);
-                int r2 = uv_queue_work(loop_, req, [](uv_work_t* work){}, on_redirect_cb);
+                uv_timer_t* timer = new uv_timer_t;
+                uv_timer_init(loop_, timer);
+                uv_handle_set_data((uv_handle_t*)timer, this);
+                int r2 = uv_timer_start(timer, on_redirect_cb, 0, 0);
                 if (r2 == 0)
                     ++ref_count; // going to be closed
                 else
-                    delete req;
+                    delete timer;
                 set_read_done();
                 return false; // to be closed
             }
@@ -226,13 +227,13 @@ private:
             p_this->on_end(status);
     }
 
-    static void on_redirect_cb(uv_work_t* req, int status)
+    static void on_redirect_cb(uv_timer_t* timer)
     {
-        _requester* p_this = (_requester*)uv_req_get_data((uv_req_t*)req);
-        delete req;
+        _requester* p_this = (_requester*)uv_handle_get_data((uv_handle_t*)timer);
+        uv_timer_stop(timer);
+        delete timer;
 
-        if (status == 0)
-            status = p_this->resolve();
+        int status = p_this->resolve();
         if (status < 0)
             p_this->on_end(status);
     }
