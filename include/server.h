@@ -18,14 +18,15 @@ using recycler = std::function<void(void* ptr)>;
 
 struct content_provider
 {
-    std::function<size_t(char* buffer, size_t size, int64_t offset)> getter;
-    std::function<void*(char*& data, size_t& size, int64_t offset, recycler& recycler)> setter;
+    // either reader or referer
+    std::function<size_t(char* buffer, size_t size, int64_t offset)> reader;
+    std::function<void*(char*& data, size_t& size, int64_t offset, recycler& recycler)> referer;
     std::function<void()> releaser;
 
     void clear()
     {
-        getter = nullptr;
-        setter = nullptr;
+        reader = nullptr;
+        referer = nullptr;
         releaser = nullptr;
     }
 };
@@ -50,6 +51,8 @@ public:
     bool serve_file(const std::string& path, const request& req, response2& res);
 
     bool listen(const std::string& address, int port);
+
+    int run_loop();
 
 private:
     void on_connection(uv_stream_t* socket);

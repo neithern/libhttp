@@ -13,14 +13,14 @@ static const size_t _max_request_body_ = 8 * 1024 * 1024;
 
 struct _write_head_req : public uv_write_t
 {
-    uv_buf_t buf = {};
+    uv_buf_t buf = {nullptr, 0};
     // for response header
     std::string data;
 };
 
 struct _write_data_req : public uv_write_t
 {
-    uv_buf_t buf = {};
+    uv_buf_t buf = {nullptr, 0};
     // for content_provider.getter
     size_t capacity = 0;
     // for content_provider.setter
@@ -138,21 +138,23 @@ protected:
         }
 
         // set default status
-        response_.status_code = 404;
-        response_.status_msg = "not found";
         response_.content_length.reset();
         response_.headers.clear();
         response_.content_provider.clear();
-
         if (router != nullptr)
         {
+            response_.status_code = 200;
+            response_.status_msg = "ok";
             router(request_, response_);
             if (keep_alive_ && response_.headers.find(HEADER_CONNECTION) == response_.headers.cend())
                 response_.headers[HEADER_CONNECTION] = "Keep-Alive";
         }
         else
+        {
+            response_.status_code = 404;
+            response_.status_msg = "not found";
             response_.content_length = 0;
-
+        }
         start_write();
     }
 
@@ -230,7 +232,7 @@ protected:
         _write_data_req& data_req = write_data_req_;
         data_req.buf.len = 0;
 
-        if (provider.getter)
+        if (provider.reader)
         {
             if (data_req.capacity == 0)
             {
@@ -238,15 +240,18 @@ protected:
                     return UV_ENOMEM;
                 data_req.capacity = data_req.buf.len;
             }
-            data_req.buf.len = provider.getter(data_req.buf.base, data_req.capacity, content_written_);
+            data_req.buf.len = provider.reader(data_req.buf.base, data_req.capacity, content_written_);
         }
-        else if (provider.setter)
+        else if (provider.referer)
         {
-            assert(data_req.recycler == nullptr);
-            assert(data_req.ptr == nullptr);
-            data_req.ptr = provider.setter(data_req.buf.base, data_req.buf.len, content_written_, data_req.recycler);
+            data_req.buf.base = nullptr;
+            data_req.buf.len = 0;
+            data_req.recycler = nullptr;
+            data_req.ptr = provider.referer(data_req.buf.base, data_req.buf.len, content_written_, data_req.recycler);
         }
-        if (data_req.buf.len <= 0)
+        else
+            return UV_E_USER_CANCELED;
+        if ((ssize_t)data_req.buf.len < 0)
             return data_req.buf.len;
 
         content_written_ += data_req.buf.len;
@@ -308,8 +313,14 @@ protected:
         _write_data_req& req = write_data_req_;
         if (req.capacity > 0)
         {
-            req.capacity = 0;
             buffer_pool_->recycle_buffer(req.buf);
+            req.capacity = 0;
+        }
+        if (req.ptr != nullptr && req.recycler)
+        {
+            req.recycler(req.ptr);
+            req.recycler = nullptr;
+            req.ptr = nullptr;
         }
     }
 
@@ -399,7 +410,7 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     {
         if (res.range_end == 0)
             res.range_end = length - 1;
-        char sz[256] = {};
+        char sz[256] = {0};
         ::snprintf(sz, 256, "bytes %lld-%lld/%lld", res.range_begin, res.range_end, length);
         res.headers[HEADER_CONTENT_RANGE] = sz;
     }
@@ -414,7 +425,7 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         uv_fs_close(nullptr, &close_req, fs_file, nullptr);
         uv_fs_req_cleanup(&close_req);
     };
-    res.content_provider.getter = [=](char* buffer, size_t size, int64_t offset) {
+    res.content_provider.reader = [=](char* buffer, size_t size, int64_t offset) {
         uv_fs_t read_req;
         offset += read_begin;
         if (offset + size > read_end)
@@ -449,10 +460,12 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     //         return (uv_buf_t*)nullptr;
     //     }
     // };
-
-    res.status_code = 200;
-    res.status_msg = "ok";
     return true;
+}
+
+int server::run_loop()
+{
+    return uv_run(loop_, UV_RUN_DEFAULT);
 }
 
 void server::on_connection(uv_stream_t* socket)

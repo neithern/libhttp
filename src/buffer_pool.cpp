@@ -55,6 +55,9 @@ bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
 
 void buffer_pool::recycle_buffer(uv_buf_t& buf)
 {
+    if (buf.base == nullptr)
+        return;
+
     buffer* p_buf = (buffer*)(buf.base - sizeof(buffer));
     if (tailer_ == nullptr)
     {

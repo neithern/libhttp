@@ -82,7 +82,7 @@ protected:
 
         if (content_length != 0)
         {
-            char sz[64] = {};
+            char sz[64] = {0};
             ::snprintf(sz, 64, "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
@@ -293,6 +293,11 @@ bool client::fetch(const request& request,
         return false;
     }
     return true;
+}
+
+int client::run_loop()
+{
+    return uv_run(loop_, UV_RUN_DEFAULT);
 }
 
 } // namespace http

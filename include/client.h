@@ -28,6 +28,8 @@ public:
                 on_redirect on_redirect = nullptr,
                 on_error on_error = nullptr);
 
+    int run_loop();
+
 private:
     uv_loop_t* loop_;
     std::shared_ptr<struct buffer_pool> buffer_pool_;
