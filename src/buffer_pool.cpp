@@ -6,6 +6,8 @@
 namespace http
 {
 
+#define _ENABLE_CACHE_
+
 struct buffer
 {
     size_t size;
@@ -24,12 +26,14 @@ buffer_pool::buffer_pool(size_t max_size)
 buffer_pool::~buffer_pool()
 {
     clear();
-
+#ifdef _ENABLE_CACHE_
     printf("buffer pool status: alloc %zu, hit %zu\n", alloc_count_, hit_count_);
+#endif
 }
 
 bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
 {
+#ifdef _ENABLE_CACHE_
     buffer* p_buf;
     if (header_ != nullptr)
     {
@@ -50,6 +54,10 @@ bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
     buf.base = (char*)p_buf + sizeof(buffer);
     buf.len = p_buf->size > size ? p_buf->size : size;
     p_buf->next = nullptr;
+#else
+    buf.base = (char*)malloc(size);
+    buf.len = size;
+#endif
     return true;
 }
 
@@ -58,6 +66,7 @@ void buffer_pool::recycle_buffer(uv_buf_t& buf)
     if (buf.base == nullptr)
         return;
 
+#ifdef _ENABLE_CACHE_
     buffer* p_buf = (buffer*)(buf.base - sizeof(buffer));
     if (tailer_ == nullptr)
     {
@@ -68,6 +77,9 @@ void buffer_pool::recycle_buffer(uv_buf_t& buf)
         tailer_->next = p_buf;
         tailer_ = p_buf;
     }
+#else
+    free(buf.base);
+#endif
     buf.base = nullptr;
     buf.len = 0;
 }

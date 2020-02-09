@@ -9,6 +9,8 @@
 namespace http
 {
 
+#define _ENABLE_KEEP_ALIVE_
+
 static const size_t _max_request_body_ = 8 * 1024 * 1024;
 
 struct _write_head_req : public uv_write_t
@@ -18,6 +20,33 @@ struct _write_head_req : public uv_write_t
     std::string data;
 };
 
+static const char* status_message(int status)
+{
+    switch (status)
+    {
+    case 200: return "OK";
+    case 202: return "Accepted";
+    case 204: return "No Content";
+    case 206: return "Partial Content";
+    case 301: return "Moved Permanently";
+    case 302: return "Found";
+    case 303: return "See Other";
+    case 304: return "Not Modified";
+    case 400: return "Bad Request";
+    case 401: return "Unauthorized";
+    case 403: return "Forbidden";
+    case 404: return "Not Found";
+    case 413: return "Payload Too Large";
+    case 414: return "Request-URI Too Long";
+    case 415: return "Unsupported Media Type";
+    case 416: return "Range Not Satisfiable";
+    case 503: return "Service Unavailable";
+
+    default:
+    case 500: return "Internal Server Error";
+    }
+}
+
 struct _write_data_req : public uv_write_t
 {
     uv_buf_t buf = {nullptr, 0};
@@ -25,15 +54,22 @@ struct _write_data_req : public uv_write_t
     size_t capacity = 0;
     // for content_provider.setter
     void* ptr = nullptr;
-    std::function<void(void* ptr)> recycler;
+    recycler recycler;
+    void recycle()
+    {
+        if (recycler && ptr != nullptr)
+            recycler(ptr);
+        recycler = nullptr;
+        ptr = nullptr;
+    }
 };
 
 class _responser : public parser
 {
     friend class server;
 
-protected:
-    int ref_count = 1;
+private:
+    int ref_count_ = 1;
 
     uv_loop_t* loop_;
 
@@ -54,9 +90,15 @@ protected:
     uv_stream_t* socket_ = nullptr;
     uv_timer_t* write_timer_ = nullptr;
 
-    _responser(std::shared_ptr<buffer_pool> buffer_pool, const std::unordered_map<std::string, on_router>& router_map, const std::vector<std::pair<std::regex, on_router>>& router_list)
+protected:
+    _responser(uv_loop_t* loop, uv_stream_t* socket, std::shared_ptr<buffer_pool> buffer_pool,
+            const std::unordered_map<std::string, on_router>& router_map, const std::vector<std::pair<std::regex, on_router>>& router_list)
         : parser(true, buffer_pool), router_map_(router_map), router_list_(router_list)
     {
+        loop_ = loop;
+        socket_ = socket;
+        uv_handle_set_data((uv_handle_t*)socket_, this);
+
         uv_handle_set_data((uv_handle_t*)&write_head_req_, this);
         uv_handle_set_data((uv_handle_t*)&write_data_req_, this);
     }
@@ -68,7 +110,6 @@ protected:
 
     void start()
     {
-        uv_handle_set_data((uv_handle_t*)socket_, this);
         int r = start_read(socket_);
         if (r != 0)
             on_end(r);
@@ -101,6 +142,8 @@ protected:
 
         request_.body.clear();
         request_.body.reserve(4096);
+
+        printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
         return true;
     }
 
@@ -139,23 +182,29 @@ protected:
         }
 
         // set default status
-        response_.content_length.reset();
+        response_.status_msg.clear();
         response_.headers.clear();
+        response_.content_length.reset();
         response_.content_provider.clear();
+
         if (router != nullptr)
         {
             response_.status_code = 200;
-            response_.status_msg = "ok";
             router(request_, response_);
+            if (!response_.is_ok())
+                response_.content_length = 0;
+#ifdef _ENABLE_KEEP_ALIVE_
             if (keep_alive_ && response_.headers.find(HEADER_CONNECTION) == response_.headers.cend())
                 response_.headers[HEADER_CONNECTION] = "Keep-Alive";
+#endif
         }
         else
         {
-            response_.status_code = 404;
-            response_.status_msg = "not found";
             response_.content_length = 0;
+            response_.status_code = 404;
         }
+        if (response_.status_msg.empty())
+            response_.status_msg = status_message(response_.status_code);
         start_write();
     }
 
@@ -210,11 +259,16 @@ protected:
         else if (response_.content_length)
         {
             int64_t length = response_.content_length.value();
-            if (response_.range_end > length - 1)
-                response_.range_end = length - 1;
-            content_to_write_ = response_.range_end > response_.range_begin
-                ? response_.range_end + 1 - response_.range_begin
-                : length - response_.range_begin;
+            if (length > 0)
+            {
+                if (response_.range_end > length - 1)
+                    response_.range_end = length - 1;
+                content_to_write_ = response_.range_end > response_.range_begin
+                    ? response_.range_end + 1 - response_.range_begin
+                    : length - response_.range_begin;
+            }
+            else
+                content_to_write_ = 0;
         }
         else
         {
@@ -251,7 +305,7 @@ protected:
             data_req.ptr = provider.referer(data_req.buf.base, data_req.buf.len, content_written_, data_req.recycler);
         }
         else
-            return UV_E_USER_CANCELED;
+            return content_to_write_ == 0 ? 0 : UV_E_USER_CANCELED;
 
         if ((ssize_t)data_req.buf.len < 0)
             return data_req.buf.len;
@@ -274,12 +328,7 @@ protected:
     int on_written()
     {
         _write_data_req& req = write_data_req_;
-        if (req.ptr != nullptr && req.recycler)
-        {
-            req.recycler(req.ptr);
-            req.recycler = nullptr;
-            req.ptr = nullptr;
-        }
+        req.recycle();
 
         if (is_write_done())
             return 0; // UV_E_USER_CANCELED;
@@ -288,35 +337,42 @@ protected:
 
     void on_end(int error_code, bool release_this = true)
     {
+        printf("%p:%p end: %s, %s, %s, %d\n", this, socket_, error_code == 0 ? "ok" : uv_err_name(error_code), request_.url.c_str(), keep_alive_ ? "alive" : "close", ref_count_);
+
         const content_provider& provider = response_.content_provider;
         if (provider.releaser)
             provider.releaser();
 
-        if (error_code == 0 && keep_alive_)
+#ifdef _ENABLE_KEEP_ALIVE_
+        if (keep_alive_ && (error_code == 0
+                        || error_code == UV_E_USER_CANCELED))
         {
-            ++ref_count;
             reset_status();
+            return;
         }
+#endif
 
         release();
     }
 
     void release()
     {
-        if (--ref_count == 0)
+        if (--ref_count_ == 0)
             delete this;
     }
 
     void close_socket()
     {
-        uv_stream_t* tcp = socket_;
-        socket_ = nullptr;
-        if (tcp != nullptr)
-        {
-            printf("%p closing socket %p\n", this, tcp);
-            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-        }
+        uv_cancel((uv_req_t*)&write_head_req_);
+        uv_cancel((uv_req_t*)&write_data_req_);
+        uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
+        uv_handle_set_data((uv_handle_t*)&write_data_req_, nullptr);
+
+        _write_data_req& req = write_data_req_;
+        if (req.capacity > 0)
+            buffer_pool_->recycle_buffer(req.buf);
+        req.capacity = 0;
+        req.recycle();
 
         uv_timer_t* timer = write_timer_;
         write_timer_ = nullptr;
@@ -327,22 +383,13 @@ protected:
             delete timer;
         }
 
-        uv_cancel((uv_req_t*)&write_head_req_);
-        uv_cancel((uv_req_t*)&write_data_req_);
-        uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
-        uv_handle_set_data((uv_handle_t*)&write_data_req_, nullptr);
-
-        _write_data_req& req = write_data_req_;
-        if (req.capacity > 0)
+        uv_stream_t* tcp = socket_;
+        socket_ = nullptr;
+        if (tcp != nullptr)
         {
-            buffer_pool_->recycle_buffer(req.buf);
-            req.capacity = 0;
-        }
-        if (req.ptr != nullptr && req.recycler)
-        {
-            req.recycler(req.ptr);
-            req.recycler = nullptr;
-            req.ptr = nullptr;
+            // printf("%p:%p closing socket\n", this, tcp);
+            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
+            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
         }
     }
 
@@ -358,10 +405,10 @@ private:
         {
             r = p_this->on_written();
             if (r < 0 && r != UV_E_USER_CANCELED)
-                printf("handle written error: %s\n", uv_strerror(r));
+                printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
         }
         else
-            printf("on_written error: %s\n", uv_strerror(status));
+            printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(r));
 
         if (r == UV_EOF && !p_this->is_write_done())
             p_this->set_write_done();
@@ -420,7 +467,10 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     uv_fs_t fs_req;
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
     if (r != 0 || fs_req.result != 0 || !(fs_req.statbuf.st_mode & S_IFREG))
+    {
+        res.status_code = 404;
         return false;
+    }
 
     uint64_t length = fs_req.statbuf.st_size;
     uv_fs_req_cleanup(&fs_req);
@@ -436,7 +486,10 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     uv_file fs_file = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
     uv_fs_req_cleanup(&open_req);
     if (fs_file == -1)
+    {
+        res.status_code = 404;
         return false;
+    }
 
     if (has_range)
     {
@@ -506,10 +559,7 @@ void server::on_connection(uv_stream_t* socket)
     uv_tcp_init(loop_, tcp);
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
-        _responser* responser = new _responser(buffer_pool_, router_map_, router_list_);
-        responser->buffer_pool_ = buffer_pool_;
-        responser->loop_ = loop_;
-        responser->socket_ = (uv_stream_t*)tcp;
+        _responser* responser = new _responser(loop_, (uv_stream_t*)tcp, buffer_pool_, router_map_, router_list_);
         responser->start();
     }
     else

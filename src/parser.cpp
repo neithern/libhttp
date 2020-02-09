@@ -147,10 +147,10 @@ void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
     {
         r = p_this->on_socket_read(nread, buf);
         if (r < 0 && r != UV_E_USER_CANCELED)
-            printf("read socket error: %s\n", uv_strerror(r));
+            printf("%p:%p read socket: %s\n", p_this, socket, uv_err_name(r));
     }
     else
-        printf("on_read error: %s\n", uv_strerror(nread));
+        printf("%p:%p on_read_cb: %s\n", p_this, socket, uv_err_name(r));
     p_this->buffer_pool_->recycle_buffer(const_cast<uv_buf_t&>(*buf));
 
     if (r == UV_EOF && !p_this->is_read_done())
