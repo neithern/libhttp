@@ -55,6 +55,8 @@ struct request
     std::string url;
     headers headers;
     std::string body;
+
+    inline bool has_header(const char* header) const { return headers.find(header) != headers.cend(); }
 };
 
 struct response
@@ -64,6 +66,7 @@ struct response
     std::optional<int64_t> content_length;
     headers headers;
 
+    inline bool has_header(const char* header) const { return headers.find(header) != headers.cend(); }
     inline bool is_ok() const { return status_code >= 200 && status_code <= 299; }
     inline bool is_redirect() const { return status_code >= 300 && status_code <= 310; }
 };

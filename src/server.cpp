@@ -194,7 +194,7 @@ protected:
             if (!response_.is_ok())
                 response_.content_length = 0;
 #ifdef _ENABLE_KEEP_ALIVE_
-            if (keep_alive_ && response_.headers.find(HEADER_CONNECTION) == response_.headers.cend())
+            if (keep_alive_ && !response_.has_header(HEADER_CONNECTION))
                 response_.headers[HEADER_CONNECTION] = "Keep-Alive";
 #endif
         }
@@ -232,7 +232,7 @@ protected:
         res_text += " ";
         res_text += response_.status_msg;
         res_text += " \r\n";
-        if (response_.content_length && headers.find(HEADER_CONTENT_LENGTH) == headers.cend())
+        if (response_.content_length && !response_.has_header(HEADER_CONTENT_LENGTH))
         {
             ::snprintf(sz, 64, "%lld", response_.content_length.value());
             headers[HEADER_CONTENT_LENGTH] = sz;
@@ -337,6 +337,8 @@ protected:
 
     void on_end(int error_code, bool release_this = true)
     {
+        if (error_code != 0)
+            keep_alive_ = false;
         printf("%p:%p end: %s, %s, %s, %d\n", this, socket_, error_code == 0 ? "ok" : uv_err_name(error_code), request_.url.c_str(), keep_alive_ ? "alive" : "close", ref_count_);
 
         const content_provider& provider = response_.content_provider;
@@ -344,8 +346,7 @@ protected:
             provider.releaser();
 
 #ifdef _ENABLE_KEEP_ALIVE_
-        if (keep_alive_ && (error_code == 0
-                        || error_code == UV_E_USER_CANCELED))
+        if (keep_alive_)
         {
             reset_status();
             return;

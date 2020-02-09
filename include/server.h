@@ -3,7 +3,6 @@
 
 #include <stdlib.h>
 #include <functional>
-#include <map>
 #include <memory>
 #include <regex>
 #include "common.h"

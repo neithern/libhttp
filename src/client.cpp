@@ -86,9 +86,9 @@ protected:
             ::snprintf(sz, 64, "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
-        if (headers.find(HEADER_USER_AGENT) == headers.cend())
+        if (!request_.has_header(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = "libhttp";
-        if (headers.find(HEADER_ACCEPT_ENCODING) == headers.cend())
+        if (!request_.has_header(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 
         for (auto it = headers.cbegin(); it != headers.cend(); it++)
