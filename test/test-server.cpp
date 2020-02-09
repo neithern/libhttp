@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <uv.h>
 #include "server.h"
 
 http::string_map mime_types =
@@ -41,8 +40,7 @@ int main(int argc, const char* argv[])
     if (argc > 2)
         path = argv[2];
 
-    uv_loop_t* loop = uv_default_loop();
-    http::server server(loop);
+    http::server server;
 
     server.serve(".*", [&](const http::request& req, http::response2& res) {
         printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
@@ -65,5 +63,5 @@ int main(int argc, const char* argv[])
     bool ret = server.listen("0.0.0.0", port);
     printf("Server listen on port %d: %s\n", port, ret ? "true" : "false");
  
-    return ret ? uv_run(loop, UV_RUN_DEFAULT) : -1;
+    return ret ? server.run_loop() : -1;
 }

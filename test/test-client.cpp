@@ -1,19 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <uv.h>
 #include "client.h"
-
-void close_file(uv_loop_t* loop, int& fd)
-{
-    if (fd != -1)
-    {
-        uv_fs_t* close_req = new uv_fs_t;
-        uv_fs_close(loop, close_req, fd, [](uv_fs_t* req) {
-            delete req;
-        });
-        fd = -1;
-    }
-}
 
 void https_to_http(std::string& url)
 {
@@ -29,21 +16,18 @@ int main(int argc, const char* argv[])
         return -1;
     }
 
-    uv_loop_t* loop = uv_default_loop();
-
     int redirect_count = 0;
-    uv_file out_file = -1;
-    uv_fs_t fs_req;
     int64_t offset = 0;
+    FILE* out_file = nullptr;
     if (argc >= 3)
-        out_file = uv_fs_open(loop, &fs_req, argv[2], UV_FS_O_CREAT | UV_FS_O_RDWR | UV_FS_O_TRUNC, 0644, nullptr);
+        out_file = fopen(argv[2], "wb+");
 
     http::request req;
     req.url = argv[1];
     https_to_http(req.url); // don't support https
     req.headers[HEADER_USER_AGENT] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130";
 
-    http::client client(loop);
+    http::client client;
     client.fetch(req,
         [](const http::response& res) {
             printf("%d %s\n", res.status_code, res.status_msg.c_str());
@@ -52,14 +36,16 @@ int main(int argc, const char* argv[])
             return true;
         },
         [&](const char* data, size_t size, bool final) {
-            if (out_file != -1 && size > 0)
+            if (out_file != nullptr && size > 0)
             {
-                uv_buf_t buf = uv_buf_init(const_cast<char*>(data), size);
-                uv_fs_write(loop, &fs_req, out_file, &buf, 1, offset, nullptr);
+                size = fwrite(data, 1, size, out_file);
                 offset += size;
             }
-            if (out_file != -1 && final)
-                close_file(loop, out_file);
+            if (out_file != nullptr && final)
+            {
+                fclose(out_file);
+                out_file = nullptr;
+            }
             printf("%zu received\n", size);
             return true;
         },
@@ -69,11 +55,14 @@ int main(int argc, const char* argv[])
             return redirect_count++ < 5;
         },
         [&](int code) {
-            if (out_file != -1)
-                close_file(loop, out_file);
+            if (out_file != nullptr)
+            {
+                fclose(out_file);
+                out_file = nullptr;
+            }
             printf("%d error\n", code);
         }
     );
 
-    return uv_run(loop, UV_RUN_DEFAULT);
+    return client.run_loop();
 }
