@@ -215,39 +215,30 @@ protected:
 
     void start_write()
     {
-        if (!response_.content_length && (response_.status_code < 200 || response_.status_code >= 299))
-            response_.content_length = 0;
-
         char sz[256] = {0};
         headers& headers = response_.headers;
 
         if (string_case_equals().operator()(request_.method, "HEAD"))
         {
             content_written_ = content_to_write_ = 0; // to be done
+            response_.content_length = 0;
         }
         else if (response_.content_length)
         {
-            if (!response_.has_header(HEADER_CONTENT_LENGTH))
-            {
-                ::snprintf(sz, 256, "%lld", response_.content_length.value());
-                headers[HEADER_CONTENT_LENGTH] = sz;
-                headers[HEADER_ACCEPT_RANGES] = "bytes";
-            }
-
             int64_t length = response_.content_length.value();
             int64_t length_1 = length - 1;
             if (request_.has_range())
             {
                 int64_t range_end = std::min(request_.range_end.value_or(length_1), length_1);
-                ::snprintf(sz, 256, "bytes %lld-%lld/%lld", request_.range_begin.value(), range_end, length);
+                ::snprintf(sz, sizeof(sz), "bytes %lld-%lld/%lld", request_.range_begin.value(), range_end, length);
                 headers[HEADER_CONTENT_RANGE] = sz;
                 response_.status_code = 206;
-                printf("%p:%p range: %s\n", this, socket_, sz);
             }
 
             int64_t read_end = request_.range_end.value_or(length_1) + 1;
             content_written_ = request_.range_begin.value_or(0);
             content_to_write_ = std::min(read_end, length);
+            response_.content_length = content_to_write_ - content_written_;
         }
         else
         {
@@ -255,9 +246,20 @@ protected:
             content_to_write_ = INT64_MAX;
         }
 
-        ::snprintf(sz, 64, "%d", response_.status_code);
+        if (response_.content_length)
+        {
+            if (!response_.has_header(HEADER_CONTENT_LENGTH))
+            {
+                ::snprintf(sz, sizeof(sz), "%lld", response_.content_length.value());
+                headers[HEADER_CONTENT_LENGTH] = sz;
+            }
+            if (!response_.has_header(HEADER_ACCEPT_RANGES))
+                headers[HEADER_ACCEPT_RANGES] = "bytes";
+        }
+
+        ::snprintf(sz, sizeof(sz), "%d", response_.status_code);
         if (response_.status_msg.empty())
-            response_.status_msg = "abc";
+            response_.status_msg = "done";
 
         std::string res_text;
         res_text.reserve(4096);
@@ -284,7 +286,7 @@ protected:
         uv_write(&head_req, socket_, &head_req.buf, 1, on_written_cb);
     }
 
-    int start_next_write()
+    int write_next()
     {
         if (socket_ == nullptr)
             return UV_ESHUTDOWN;
@@ -344,7 +346,7 @@ protected:
     {
         if (req == &write_data_req_)
             write_data_req_.recycle();
-        return start_next_write();
+        return write_next();
     }
 
     void on_end(int error_code, bool release_this = true)
