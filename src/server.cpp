@@ -11,6 +11,7 @@ namespace http
 
 #define _ENABLE_KEEP_ALIVE_
 
+static const size_t _buffer_size = 64 * 1024;
 static const size_t _max_request_body_ = 8 * 1024 * 1024;
 
 static const char* status_message(int status)
@@ -135,11 +136,11 @@ protected:
         p = request_.headers.find(HEADER_CONNECTION);
         keep_alive_ = p != end && string_case_equals().operator()(p->second, "Keep-Alive");
 
-        response_.range_begin = 0;
-        response_.range_end = 0;
+        request_.range_begin.reset();
+        request_.range_end.reset();
         p = request_.headers.find(HEADER_RANGE);
         if (p != end)
-            parse_range(p->second, response_.range_begin, response_.range_end);
+            parse_range(p->second, request_.range_begin, request_.range_end);
 
         request_.body.clear();
         request_.body.reserve(4096);
@@ -214,17 +215,49 @@ protected:
 
     void start_write()
     {
-        headers& headers = response_.headers;
-        int status_code = response_.status_code;
-
-        if (!response_.content_length && (status_code < 200 || status_code >= 299))
+        if (!response_.content_length && (response_.status_code < 200 || response_.status_code >= 299))
             response_.content_length = 0;
 
-        if (response_.status_msg.empty())
-            response_.status_msg = ".";
+        char sz[256] = {0};
+        headers& headers = response_.headers;
 
-        char sz[64] = {};
-        ::snprintf(sz, 64, "%d", status_code);
+        if (string_case_equals().operator()(request_.method, "HEAD"))
+        {
+            content_written_ = content_to_write_ = 0; // to be done
+        }
+        else if (response_.content_length)
+        {
+            if (!response_.has_header(HEADER_CONTENT_LENGTH))
+            {
+                ::snprintf(sz, 256, "%lld", response_.content_length.value());
+                headers[HEADER_CONTENT_LENGTH] = sz;
+                headers[HEADER_ACCEPT_RANGES] = "bytes";
+            }
+
+            int64_t length = response_.content_length.value();
+            int64_t length_1 = length - 1;
+            if (request_.has_range())
+            {
+                int64_t range_end = std::min(request_.range_end.value_or(length_1), length_1);
+                ::snprintf(sz, 256, "bytes %lld-%lld/%lld", request_.range_begin.value(), range_end, length);
+                headers[HEADER_CONTENT_RANGE] = sz;
+                response_.status_code = 206;
+                printf("%p:%p range: %s\n", this, socket_, sz);
+            }
+
+            int64_t read_end = request_.range_end.value_or(length_1) + 1;
+            content_written_ = request_.range_begin.value_or(0);
+            content_to_write_ = std::min(read_end, length);
+        }
+        else
+        {
+            content_written_ = 0;
+            content_to_write_ = INT64_MAX;
+        }
+
+        ::snprintf(sz, 64, "%d", response_.status_code);
+        if (response_.status_msg.empty())
+            response_.status_msg = "abc";
 
         std::string res_text;
         res_text.reserve(4096);
@@ -233,11 +266,7 @@ protected:
         res_text += " ";
         res_text += response_.status_msg;
         res_text += " \r\n";
-        if (response_.content_length && !response_.has_header(HEADER_CONTENT_LENGTH))
-        {
-            ::snprintf(sz, 64, "%lld", response_.content_length.value());
-            headers[HEADER_CONTENT_LENGTH] = sz;
-        }
+
         for (auto it = headers.cbegin(); it != headers.cend(); it++)
         {
             res_text += it->first;
@@ -252,30 +281,6 @@ protected:
         head_req.data = res_text; // hold the buffer
         head_req.buf.base = const_cast<char*>(res_text.c_str());
         head_req.buf.len = size;
-
-        if (string_case_equals().operator()(request_.method, "HEAD"))
-        {
-            content_to_write_ = 0; // to be done
-        }
-        else if (response_.content_length)
-        {
-            int64_t length = response_.content_length.value();
-            if (length > 0)
-            {
-                if (response_.range_end > length - 1)
-                    response_.range_end = length - 1;
-                content_to_write_ = response_.range_end > response_.range_begin
-                    ? response_.range_end + 1 - response_.range_begin
-                    : length - response_.range_begin;
-            }
-            else
-                content_to_write_ = 0;
-        }
-        else
-        {
-            content_to_write_ = INT64_MAX;
-        }
-        content_written_ = 0; // ignore the headers
         uv_write(&head_req, socket_, &head_req.buf, 1, on_written_cb);
     }
 
@@ -284,36 +289,39 @@ protected:
         if (socket_ == nullptr)
             return UV_ESHUTDOWN;
 
+        size_t max_read = content_to_write_ - content_written_;
+        if ((ssize_t)max_read <= 0)
+            return 0; // write done
+
         const content_provider& provider = response_.content_provider;
         _write_data_req& data_req = write_data_req_;
-        data_req.buf.len = 0;
+        size_t read_size = 0; 
 
         if (provider.reader)
         {
             if (data_req.capacity == 0)
             {
-                if (!buffer_pool_->get_buffer(65536, data_req.buf))
+                if (!buffer_pool_->get_buffer(_buffer_size, data_req.buf))
                     return UV_ENOMEM;
                 data_req.capacity = data_req.buf.len;
             }
-            data_req.buf.len = provider.reader(data_req.buf.base, data_req.capacity, content_written_);
+            read_size = provider.reader(data_req.buf.base, std::min(max_read, data_req.capacity), content_written_);
         }
         else if (provider.referer)
         {
             data_req.buf.base = nullptr;
-            data_req.buf.len = 0;
             data_req.recycler = nullptr;
-            data_req.ptr = provider.referer(data_req.buf.base, data_req.buf.len, content_written_, data_req.recycler);
+            data_req.ptr = provider.referer(data_req.buf.base, read_size, content_written_, data_req.recycler);
         }
         else
             return content_to_write_ == 0 ? 0 : UV_E_USER_CANCELED;
 
-        if ((ssize_t)data_req.buf.len < 0)
+        if ((ssize_t)read_size < 0)
         {
-            printf("%p:%p read content: %s\n", this, socket, uv_err_name(data_req.buf.len));
-            return data_req.buf.len;
+            printf("%p:%p read content: %s\n", this, socket, uv_err_name(read_size));
+            return read_size;
         }
-        else if (data_req.buf.len == 0)
+        else if (read_size == 0)
         {
             if (write_timer_ == nullptr)
             {
@@ -325,7 +333,10 @@ protected:
             return 0;
         }
 
-        content_written_ += data_req.buf.len;
+        if (read_size > max_read)
+            read_size = max_read;
+        content_written_ += read_size;
+        data_req.buf.len = read_size;
         return uv_write(&data_req, socket_, &data_req.buf, 1, on_written_cb);
     }
 
@@ -333,9 +344,6 @@ protected:
     {
         if (req == &write_data_req_)
             write_data_req_.recycle();
-
-        if (is_write_done())
-            return 0;
         return start_next_write();
     }
 
@@ -442,7 +450,7 @@ private:
 
 server::server(uv_loop_t* loop)
 {
-    buffer_pool_ = std::make_shared<buffer_pool>();
+    buffer_pool_ = std::make_shared<buffer_pool>(_buffer_size);
     loop_ = loop != nullptr ? loop : uv_default_loop();
     socket_ = new uv_stream_t;
     uv_tcp_init(loop_, (uv_tcp_t*)socket_);
@@ -477,23 +485,16 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
 {
     uv_fs_t fs_req;
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
-    if (r != 0 || fs_req.result != 0 || !(fs_req.statbuf.st_mode & S_IFREG))
+    uint64_t length = fs_req.statbuf.st_size;
+    uv_fs_req_cleanup(&fs_req);
+    if (r != 0 || fs_req.result != 0 || !(fs_req.statbuf.st_mode & S_IFREG) || length == 0)
     {
         res.status_code = 404;
         return false;
     }
 
-    uint64_t length = fs_req.statbuf.st_size;
-    uv_fs_req_cleanup(&fs_req);
-
-    bool has_range = res.range_begin > 0 || res.range_begin < res.range_end;
-    if (res.range_end > length - 1)
-        res.range_end = length - 1;
-
-    int flags = UV_FS_O_RDONLY;
-    flags |= has_range ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL;
-
     uv_fs_t open_req;
+    int flags = UV_FS_O_RDONLY | (req.has_range() ? UV_FS_O_RANDOM : UV_FS_O_SEQUENTIAL);
     uv_file fs_file = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
     uv_fs_req_cleanup(&open_req);
     if (fs_file < 0)
@@ -502,19 +503,6 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         res.status_code = 404;
         return false;
     }
-
-    if (has_range)
-    {
-        if (res.range_end == 0)
-            res.range_end = length - 1;
-        char sz[256] = {0};
-        ::snprintf(sz, 256, "bytes %lld-%lld/%lld", res.range_begin, res.range_end, length);
-        res.headers[HEADER_CONTENT_RANGE] = sz;
-    }
-    res.headers[HEADER_ACCEPT_RANGES] = "bytes";
-
-    int64_t read_begin = res.range_begin;
-    int64_t read_end = res.range_end == 0 ? length : res.range_end + 1; // range end in headers is length-1
 
     res.content_length = length;
     res.content_provider.releaser = [=]() {
@@ -526,9 +514,6 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     };
     res.content_provider.reader = [=](char* buffer, size_t size, int64_t offset) {
         uv_fs_t read_req;
-        offset += read_begin;
-        if (offset + size > read_end)
-            size = read_end > offset ? read_end - offset : 0;
         uv_buf_t buf = uv_buf_init(buffer, size);
         int nread = uv_fs_read(nullptr, &read_req, fs_file, &buf, 1, offset, nullptr);
         uv_fs_req_cleanup(&read_req);
@@ -538,7 +523,7 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
     };
     /* or
     res.content_provider.referer = [=](char*& data, size_t& size, int64_t offset, recycler& recycler) {
-        size_t capacity = 65536;
+        size_t capacity = _buffer_size;
         uv_buf_t* p_buf = (uv_buf_t*)buffer_pool_->get_buffer(sizeof(uv_buf_t) + capacity);
         if (p_buf == nullptr)
         {
@@ -547,9 +532,6 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         }
 
         uv_fs_t read_req;
-        offset += read_begin;
-        if (offset + capacity > read_end)
-            capacity = read_end > offset ? read_end - offset : 0;
         recycler = [=](void* ptr) { buffer_pool_->recycle_buffer(ptr); };
         data = p_buf->base = (char*)p_buf + sizeof(uv_buf_t);
         p_buf->len = capacity;

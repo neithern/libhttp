@@ -66,7 +66,7 @@ std::string from_i_to_hex(size_t n)
     return ret;
 }
 
-bool parse_range(const std::string& s, int64_t& begin, int64_t& end)
+bool parse_range(const std::string& s, std::optional<int64_t>& begin, std::optional<int64_t>& end)
 {
     if (s.empty())
         return false;

@@ -33,8 +33,6 @@ struct content_provider
 struct response2 : public response
 {
     content_provider content_provider;
-    int64_t range_begin = 0;
-    int64_t range_end = 0;
 };
 
 using on_router = std::function<void(const request& req, response2& res)>;
