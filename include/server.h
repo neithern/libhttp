@@ -47,11 +47,12 @@ public:
 
     void serve(const std::string& pattern, on_router router);
 
-    bool serve_file(const std::string& path, const request& req, response2& res);
+    bool serve_file(const std::string& path, const request& req, response2& res) const;
 
     bool listen(const std::string& address, int port);
 
     int run_loop();
+    void stop_loop();
 
 private:
     void on_connection(uv_stream_t* socket);

@@ -473,7 +473,7 @@ void server::serve(const std::string& pattern, on_router router)
         router_list_.push_back(std::pair<std::regex, on_router>(std::regex(pattern), router));
 }
 
-bool server::serve_file(const std::string& path, const request& req, response2& res)
+bool server::serve_file(const std::string& path, const request& req, response2& res) const
 {
     uv_fs_t fs_req;
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
@@ -568,6 +568,11 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
 int server::run_loop()
 {
     return uv_run(loop_, UV_RUN_DEFAULT);
+}
+
+void server::stop_loop()
+{
+    uv_stop(loop_);
 }
 
 void server::on_connection(uv_stream_t* socket)
