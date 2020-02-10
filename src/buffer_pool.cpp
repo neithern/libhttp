@@ -14,9 +14,9 @@ struct buffer
     struct buffer* next;
 };
 
-buffer_pool::buffer_pool(size_t max_size)
+buffer_pool::buffer_pool(size_t min_size)
 {
-    max_size_ = max_size;
+    min_size_ = min_size;
     alloc_count_ = 0;
     hit_count_ = 0;
     header_ = nullptr;
@@ -31,7 +31,7 @@ buffer_pool::~buffer_pool()
 #endif
 }
 
-bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
+void* buffer_pool::get_buffer(size_t size)
 {
 #ifdef _ENABLE_CACHE_
     buffer* p_buf;
@@ -47,27 +47,25 @@ bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
     {
         p_buf = alloc_buffer(size);
         if (p_buf == nullptr)
-            return false;
+            return nullptr;
         alloc_count_++;
     }
 
-    buf.base = (char*)p_buf + sizeof(buffer);
-    buf.len = p_buf->size > size ? p_buf->size : size;
     p_buf->next = nullptr;
+    return (char*)p_buf + sizeof(buffer);
 #else
     buf.base = (char*)malloc(size);
     buf.len = size;
 #endif
-    return true;
 }
 
-void buffer_pool::recycle_buffer(uv_buf_t& buf)
+void buffer_pool::recycle_buffer(void* ptr)
 {
-    if (buf.base == nullptr)
+    if (ptr == nullptr)
         return;
 
 #ifdef _ENABLE_CACHE_
-    buffer* p_buf = (buffer*)(buf.base - sizeof(buffer));
+    buffer* p_buf = (buffer*)((char*)ptr - sizeof(buffer));
     if (tailer_ == nullptr)
     {
         header_ = tailer_ = p_buf;
@@ -78,8 +76,33 @@ void buffer_pool::recycle_buffer(uv_buf_t& buf)
         tailer_ = p_buf;
     }
 #else
-    free(buf.base);
+    free(ptr);
 #endif
+}
+
+bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
+{
+    void* ptr = get_buffer(size);
+    if (ptr == nullptr)
+        return ptr;
+
+#ifdef _ENABLE_CACHE_
+    buffer* p_buf = (buffer*)((char*)ptr - sizeof(buffer));
+    buf.base = (char*)p_buf + sizeof(buffer);
+    buf.len = p_buf->size > size ? p_buf->size : size;
+#else
+    buf.base = ptr;
+    buf.len = size;
+#endif
+    return true;
+}
+
+void buffer_pool::recycle_buffer(uv_buf_t& buf)
+{
+    if (buf.base == nullptr)
+        return;
+
+    recycle_buffer(buf.base);
     buf.base = nullptr;
     buf.len = 0;
 }
@@ -97,8 +120,8 @@ void buffer_pool::clear()
 
 buffer* buffer_pool::alloc_buffer(size_t size)
 {
-    if (size < max_size_)
-        size = max_size_;
+    if (size < min_size_)
+        size = min_size_;
 
     buffer* buf = (buffer*)malloc(sizeof(buffer) + size);
     if (buf == nullptr)

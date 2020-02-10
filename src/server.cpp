@@ -470,7 +470,7 @@ void server::serve(const std::string& pattern, on_router router)
 {
     auto p = router_map_.insert_or_assign(pattern, router);
     if (p.second)
-        router_list_.push_back(std::pair<std::regex, on_router>(std::regex(pattern), router));
+        router_list_.push_back(std::make_pair(std::regex(pattern), router));
 }
 
 bool server::serve_file(const std::string& path, const request& req, response2& res) const
@@ -537,30 +537,25 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         return nread;
     };
     /* or
-    res.content_provider.setter = [=](char*& data, size_t& size, int64_t offset, recycler& recycler) {
-        uv_fs_t read_req;
-        uv_buf_t* buf = new uv_buf_t;
-        if (buffer_pool_->get_buffer(65536, *buf))
+    res.content_provider.referer = [=](char*& data, size_t& size, int64_t offset, recycler& recycler) {
+        size_t capacity = 65536;
+        uv_buf_t* p_buf = (uv_buf_t*)buffer_pool_->get_buffer(sizeof(uv_buf_t) + capacity);
+        if (p_buf == nullptr)
         {
-            offset += read_begin;
-            if (offset + size > read_end)
-                size = read_end > offset ? read_end - offset : 0;
-            data = buf->base;
-            size = uv_fs_read(nullptr, &read_req, fs_file, buf, 1, offset, nullptr);
-            uv_fs_req_cleanup(&read_req);
-            recycler = [=](void* ptr) {
-                uv_buf_t* p_buf = (uv_buf_t*)ptr;
-                buffer_pool_->recycle_buffer(*p_buf);
-                delete p_buf;
-            };
-            return buf;
-        }
-        else
-        {
-            data = nullptr;
-            size = 0;
+            size = UV_ENOMEM;
             return (uv_buf_t*)nullptr;
         }
+
+        uv_fs_t read_req;
+        offset += read_begin;
+        if (offset + capacity > read_end)
+            capacity = read_end > offset ? read_end - offset : 0;
+        recycler = [=](void* ptr) { buffer_pool_->recycle_buffer(ptr); };
+        data = p_buf->base = (char*)p_buf + sizeof(uv_buf_t);
+        p_buf->len = capacity;
+        size = uv_fs_read(nullptr, &read_req, fs_file, p_buf, 1, offset, nullptr);
+        uv_fs_req_cleanup(&read_req);
+        return p_buf;
     };*/
     return true;
 }

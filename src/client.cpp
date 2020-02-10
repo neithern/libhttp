@@ -282,10 +282,10 @@ bool client::fetch(const request& request,
 
     requester->loop_ = loop_;
     requester->request_ = request;
-    requester->on_response_ = on_response;
-    requester->on_content_ = on_content;
-    requester->on_redirect_ = on_redirect;
-    requester->on_error_ = on_error;
+    requester->on_response_ = std::move(on_response);
+    requester->on_content_ = std::move(on_content);
+    requester->on_redirect_ = std::move(on_redirect);
+    requester->on_error_ = std::move(on_error);
 
     int ret = requester->resolve();
     if (ret != 0)
