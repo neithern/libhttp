@@ -101,8 +101,8 @@ protected:
         socket_ = socket;
         uv_handle_set_data((uv_handle_t*)socket_, this);
 
-        uv_handle_set_data((uv_handle_t*)&write_head_req_, this);
-        uv_handle_set_data((uv_handle_t*)&write_data_req_, this);
+        uv_req_set_data((uv_req_t*)&write_head_req_, this);
+        uv_req_set_data((uv_req_t*)&write_data_req_, this);
     }
 
     ~_responser()
@@ -379,10 +379,10 @@ protected:
         if (tcp != nullptr)
         {
             uv_cancel((uv_req_t*)&write_head_req_);
-            uv_handle_set_data((uv_handle_t*)&write_head_req_, nullptr);
+            uv_req_set_data((uv_req_t*)&write_head_req_, nullptr);
 
             uv_cancel((uv_req_t*)&write_data_req_);
-            uv_handle_set_data((uv_handle_t*)&write_data_req_, nullptr);
+            uv_req_set_data((uv_req_t*)&write_data_req_, nullptr);
             write_data_req_.cleanup();
 
             // printf("%p:%p closing socket\n", this, tcp);

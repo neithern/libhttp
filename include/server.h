@@ -57,7 +57,7 @@ private:
 private:
     uv_loop_t* loop_;
     uv_stream_t* socket_;
-    std::shared_ptr<struct buffer_pool> buffer_pool_;
+    std::shared_ptr<class buffer_pool> buffer_pool_;
     std::unordered_map<std::string, on_router> router_map_;
     std::vector<std::pair<std::regex, on_router>> router_list_;
     std::unordered_map<std::string, std::shared_ptr<class file_cache>> file_caches_;
