@@ -52,7 +52,7 @@ private:
     int64_t content_to_receive_ = 0;
     bool headers_parsed_ = false;
     std::string received_cache_;
-    struct chunked_decoder* chunked_decoder_ = nullptr;
+    class chunked_decoder* chunked_decoder_ = nullptr;
 };
 
 } // namespace http

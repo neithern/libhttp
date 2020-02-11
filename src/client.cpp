@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
-#include "uri.h"
-#include "utils.h"
 #include "buffer_pool.h"
 #include "client.h"
 #include "parser.h"
+#include "reference_count.h"
+#include "uri.h"
+#include "utils.h"
 
 namespace http
 {
@@ -17,11 +18,11 @@ struct _write_req : public uv_write_t
 
 class _requester : public parser
 {
+    define_reference_count(_requester)
+
     friend class client;
 
 protected:
-    int ref_count = 1;
-
     uv_loop_t* loop_;
 
     // for request
@@ -142,7 +143,7 @@ protected:
                 uv_handle_set_data((uv_handle_t*)timer, this);
                 int r2 = uv_timer_start(timer, on_redirect_cb, 0, 0);
                 if (r2 == 0)
-                    ++ref_count; // going to be closed
+                    aquire(); // going to be closed
                 else
                     delete timer;
                 set_read_done();
@@ -195,12 +196,6 @@ protected:
             on_error_(error_code);
 
         release();
-    }
-
-    void release()
-    {
-        if (--ref_count == 0)
-            delete this;
     }
 
     void close_socket()

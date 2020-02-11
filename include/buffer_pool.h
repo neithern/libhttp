@@ -10,7 +10,6 @@ class buffer_pool
 {
 public:
     buffer_pool(size_t min_size = 64 * 1024);
-
     ~buffer_pool();
 
     void* get_buffer(size_t size);
