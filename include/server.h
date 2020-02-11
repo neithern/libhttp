@@ -13,23 +13,14 @@ typedef struct uv_stream_s uv_stream_t;
 namespace http
 {
 
-using recycler = std::function<void(void* ptr)>;
-
-struct content_provider
-{
-    std::function<void*(char*& data, size_t& size, int64_t offset, recycler& recycler)> provider;
-    std::function<void()> releaser;
-
-    void clear()
-    {
-        provider = nullptr;
-        releaser = nullptr;
-    }
-};
+using content_done = std::function<void(void* content)>;
+using content_sink = std::function<void(const char* data, size_t size, void* content, content_done done)>;
+using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
 
 struct response2 : public response
 {
-    content_provider content_provider;
+    content_provider provider;
+    std::function<void()> releaser;
 };
 
 using on_router = std::function<void(const request& req, response2& res)>;
@@ -60,7 +51,6 @@ private:
     std::shared_ptr<class buffer_pool> buffer_pool_;
     std::unordered_map<std::string, on_router> router_map_;
     std::vector<std::pair<std::regex, on_router>> router_list_;
-    std::unordered_map<std::string, std::shared_ptr<class file_cache>> file_caches_;
 };
 
 } // namespace http
