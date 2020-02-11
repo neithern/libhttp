@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
-#include "buffer_pool.h"
+#include "buffer-pool.h"
 #include "client.h"
 #include "parser.h"
-#include "reference_count.h"
+#include "reference-count.h"
 #include "uri.h"
 #include "utils.h"
 

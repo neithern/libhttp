@@ -1,10 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
-#include "buffer_pool.h"
-#include "file_cache.h"
+#include "buffer-pool.h"
+#include "file-cache.h"
 #include "parser.h"
-#include "reference_count.h"
+#include "reference-count.h"
 #include "server.h"
 #include "utils.h"
 

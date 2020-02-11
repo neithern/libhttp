@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "uv.h"
-#include "buffer_pool.h"
+#include <uv.h>
+#include "buffer-pool.h"
 
 namespace http
 {
