@@ -17,15 +17,12 @@ using recycler = std::function<void(void* ptr)>;
 
 struct content_provider
 {
-    // either reader or referer
-    std::function<size_t(char* buffer, size_t size, int64_t offset)> reader;
-    std::function<void*(char*& data, size_t& size, int64_t offset, recycler& recycler)> referer;
+    std::function<void*(char*& data, size_t& size, int64_t offset, recycler& recycler)> provider;
     std::function<void()> releaser;
 
     void clear()
     {
-        reader = nullptr;
-        referer = nullptr;
+        provider = nullptr;
         releaser = nullptr;
     }
 };
@@ -45,7 +42,7 @@ public:
 
     void serve(const std::string& pattern, on_router router);
 
-    bool serve_file(const std::string& path, const request& req, response2& res) const;
+    bool serve_file(const std::string& path, const request& req, response2& res);
 
     bool listen(const std::string& address, int port);
 
@@ -63,6 +60,7 @@ private:
     std::shared_ptr<struct buffer_pool> buffer_pool_;
     std::unordered_map<std::string, on_router> router_map_;
     std::vector<std::pair<std::regex, on_router>> router_list_;
+    std::unordered_map<std::string, std::shared_ptr<class file_cache>> file_caches_;
 };
 
 } // namespace http
