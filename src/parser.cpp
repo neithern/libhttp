@@ -79,6 +79,8 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
     if (request_mode_)
     {
         request* req = on_get_request();
+        req->method.clear();
+        req->url.clear();
         req->body.clear();
         headers = &req->headers;
         headers->clear();
@@ -87,6 +89,8 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
     else
     {
         response* res = on_get_response();
+        res->status_code = 0;
+        res->status_msg.clear();
         res->content_length.reset();
         headers = &res->headers;
         headers->clear();

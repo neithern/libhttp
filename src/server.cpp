@@ -45,6 +45,14 @@ static const char* status_message(int status)
     }
 }
 
+enum _end_reason
+{
+    reason_start_failed,
+    reason_read_done,
+    reason_write_done,
+    reason_write_done2
+};
+
 struct _content_holder : public uv_buf_t
 {
     content_done done;
@@ -139,7 +147,7 @@ protected:
     {
         int r = start_read(socket_);
         if (r != 0)
-            on_end(r);
+            on_end(r, reason_start_failed);
     }
 
     virtual request* on_get_request()
@@ -188,7 +196,7 @@ protected:
         }
         else if (error_code < 0 && state_ != state_outputing)
         {
-            on_end(error_code);
+            on_end(error_code, reason_read_done);
         }
     }
 
@@ -312,7 +320,7 @@ protected:
 
         state_ = state_outputing;
 
-        write_req_->holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [pstr]() { delete pstr; });
+        write_req_->holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
         writing_ = true;
         uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
@@ -330,7 +338,7 @@ protected:
         {
             int r = write_next();
             if ((r < 0 || is_write_done()) && !writing_)
-                on_end(r);
+                on_end(r, reason_write_done2);
         }
     }
 
@@ -345,6 +353,7 @@ protected:
 
         if (_holder_list.empty())
         {
+            // prepare next content
             response_.provider(content_written_, content_to_write_, content_sink_);
             return 0;
         }
@@ -363,10 +372,8 @@ protected:
         return uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
 
-    void on_end(int error_code, bool release_this = true)
+    void on_end(int error_code, _end_reason reason)
     {
-        printf("%p:%p end: %s, %s, %d\n", this, socket_, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
-
         if (response_.releaser)
         {
             response_.releaser();
@@ -378,10 +385,14 @@ protected:
 #ifdef _ENABLE_KEEP_ALIVE_
         if (keep_alive_)
         {
+            printf("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
             reset_status();
             return;
         }
 #endif
+        printf("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
+
+        state_ = state_parsing;
         assert(ref_count_ == 1);
         release();
     }
@@ -414,7 +425,7 @@ private:
 
         bool done = p_this->is_write_done();
         if (r < 0 || done)
-            p_this->on_end(r);
+            p_this->on_end(r, reason_write_done);
     }
 };
 

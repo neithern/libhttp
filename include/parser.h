@@ -33,8 +33,9 @@ public:
 
 protected:
     inline bool is_read_done() { return content_received_ >= content_to_receive_; }
-    void reset_status();
     void set_read_done() { content_to_receive_ = 0; }
+
+    void reset_status();
 
     int on_content_read(const char* data, size_t size);
     int on_socket_read(ssize_t nread, const uv_buf_t* buf);
