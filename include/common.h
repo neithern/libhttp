@@ -62,6 +62,10 @@ struct request
     inline bool has_range() const { return range_begin.has_value(); }
 };
 
+using content_done = std::function<void()>;
+using content_sink = std::function<void(const char* data, size_t size, std::function<void()> done)>;
+using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
+
 struct response
 {
     int status_code = 0;

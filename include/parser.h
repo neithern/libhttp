@@ -16,6 +16,15 @@ namespace http
 
 class parser
 {
+protected:
+    enum state
+    {
+        state_none,
+        state_parsing,
+        state_parsed,
+        state_outputing
+    };
+
 public:
     parser(bool request_mode, std::shared_ptr<buffer_pool> buffer_pool);
     virtual ~parser();
@@ -44,14 +53,12 @@ protected:
     static int parse_response(const char* data, size_t size, size_t last_size, response& res);
 
 protected:
-    std::shared_ptr<buffer_pool> buffer_pool_;
-
-private:
     bool request_mode_;
+    state state_ = state_none;
     int64_t content_received_ = 0;
     int64_t content_to_receive_ = 0;
-    bool headers_parsed_ = false;
     std::string received_cache_;
+    std::shared_ptr<buffer_pool> buffer_pool_;
     class chunked_decoder* chunked_decoder_ = nullptr;
 };
 

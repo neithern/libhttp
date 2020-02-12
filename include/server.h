@@ -13,14 +13,10 @@ typedef struct uv_stream_s uv_stream_t;
 namespace http
 {
 
-using content_done = std::function<void(void* content)>;
-using content_sink = std::function<void(const char* data, size_t size, void* content, content_done done)>;
-using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
-
 struct response2 : public response
 {
     content_provider provider;
-    std::function<void()> releaser;
+    content_done releaser;
 };
 
 using on_router = std::function<void(const request& req, response2& res)>;

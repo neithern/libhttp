@@ -3,7 +3,7 @@
 #include <list>
 #include <uv.h>
 #include "buffer-pool.h"
-#include "file-cache.h"
+#include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
 #include "server.h"
@@ -45,29 +45,37 @@ static const char* status_message(int status)
     }
 }
 
-struct _write_head_req : public uv_write_t
-{
-    uv_buf_t buf = {nullptr, 0};
-    std::string holder;
-};
-
 struct _content_holder : public uv_buf_t
 {
-    void* content;
     content_done done;
 
-    void write_done()
+    _content_holder(const char* data = nullptr, size_t size = 0, content_done d = nullptr)
+    {
+        base = const_cast<char*>(data);
+        len = size;
+        done = std::move(d);
+    }
+
+    ~_content_holder()
     {
         if (done)
-            done(content);
-        done = nullptr;
-        content = nullptr;
+            done();
     }
 };
 
-struct _write_data_req : public uv_write_t
+struct _write_req : public uv_write_t
 {
-    _content_holder holder;
+    std::shared_ptr<_content_holder> holder;
+
+    _write_req()
+    {
+        memset(this, 0, sizeof(uv_write_t));
+    }
+
+    void done()
+    {
+        holder = nullptr;
+    }
 };
 
 class _responser : public parser
@@ -89,12 +97,11 @@ private:
     int64_t content_written_ = 0;
     int64_t content_to_write_ = 0;
     response2 response_;
-    _write_head_req write_head_req_;
-    _write_data_req write_data_req_;
-    std::list<_content_holder> _holder_list;
+    _write_req* write_req_;
+    std::list<std::shared_ptr<_content_holder>> _holder_list;
 
     bool keep_alive_ = false;
-    bool is_writing_ = false;
+    bool writing_ = false;
     uv_stream_t* socket_ = nullptr;
 
 protected:
@@ -106,13 +113,26 @@ protected:
         socket_ = socket;
         uv_handle_set_data((uv_handle_t*)socket_, this);
 
-        uv_req_set_data((uv_req_t*)&write_head_req_, this);
-        uv_req_set_data((uv_req_t*)&write_data_req_, this);
+        write_req_ = new _write_req;
+        uv_req_set_data((uv_req_t*)write_req_, this);
     }
 
     ~_responser()
     {
-        close_socket();
+        uv_req_set_data((uv_req_t*)write_req_, nullptr);
+        if (!writing_)
+            delete write_req_;
+
+        _holder_list.clear();
+
+        uv_stream_t* tcp = socket_;
+        socket_ = nullptr;
+        if (tcp != nullptr)
+        {
+            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
+            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
+            // printf("%p:%p socket closed\n", this, tcp);
+        }
     }
 
     void start()
@@ -162,10 +182,14 @@ protected:
 
     virtual void on_read_done(int error_code)
     {
-        if (error_code < 0)
-            on_end(error_code);
-        else
+        if (error_code >= 0)
+        {
             on_route();
+        }
+        else if (error_code < 0 && state_ != state_outputing)
+        {
+            on_end(error_code);
+        }
     }
 
     void on_route()
@@ -269,14 +293,14 @@ protected:
         if (response_.status_msg.empty())
             response_.status_msg = "done";
 
-        std::string res_text;
+        std::string* pstr = new std::string();
+        std::string& res_text = *pstr;
         res_text.reserve(4096);
         res_text += "HTTP/1.1 ";
         res_text += sz;
         res_text += " ";
         res_text += response_.status_msg;
         res_text += " \r\n";
-
         for (auto it = headers.cbegin(); it != headers.cend(); it++)
         {
             res_text += it->first;
@@ -286,18 +310,29 @@ protected:
         }
         res_text += "\r\n";
 
-        _write_head_req& head_req = write_head_req_;
-        head_req.buf.base = const_cast<char*>(res_text.c_str());
-        head_req.buf.len = res_text.size();
-        head_req.holder = res_text; // hold the buffer
-        is_writing_ = true;
-        uv_write(&head_req, socket_, &head_req.buf, 1, on_written_cb);
+        state_ = state_outputing;
+
+        write_req_->holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [pstr]() { delete pstr; });
+        writing_ = true;
+        uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
 
-    content_sink content_sink_ = [this](const char* data, size_t size, void* content, content_done done)
+    content_sink content_sink_ = [this](const char* data, size_t size, content_done done)
     {
-        write_content(data, size, content, done);
+        write_content(data, size, done);
     };
+
+    void write_content(const char* data, size_t size, content_done done)
+    {
+        _holder_list.push_back(std::make_shared<_content_holder>(data, size, done));
+
+        if (!writing_)
+        {
+            int r = write_next();
+            if ((r < 0 || is_write_done()) && !writing_)
+                on_end(r);
+        }
+    }
 
     int write_next()
     {
@@ -305,12 +340,8 @@ protected:
             return UV_ESHUTDOWN;
 
         ssize_t max_read = content_to_write_ - content_written_;
-        if (max_read <= 0)
-        {
-            // write done
-            on_end(0);
+        if (max_read <= 0) // write done
             return 0;
-        };
 
         if (_holder_list.empty())
         {
@@ -318,44 +349,23 @@ protected:
             return 0;
         }
 
-        _write_data_req& data_req = write_data_req_;
-        data_req.holder = _holder_list.front();
+        write_req_->holder = _holder_list.front();
         _holder_list.pop_front();
 
-        ssize_t buf_size = data_req.holder.len;
-        if (buf_size < 0)
-        {
-            // write error
-            on_end(buf_size);
-            return 0;
-        }
+        ssize_t buf_size = write_req_->holder->len;
+        if (buf_size < 0) // write error
+            return buf_size;
         else if (buf_size > max_read)
             buf_size = max_read;
 
         content_written_ += buf_size;
-        is_writing_ = true;
-        return uv_write(&data_req, socket_, &data_req.holder, 1, on_written_cb);
-    }
-
-    void write_content(const char* data, size_t size, void* content, content_done done)
-    {
-        _content_holder holder;
-        holder.base = const_cast<char*>(data);
-        holder.len = size;
-        holder.content = content;
-        holder.done = std::move(done);
-        _holder_list.push_back(holder);
-
-        if (!is_writing_)
-            write_next();
+        writing_ = true;
+        return uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
 
     void on_end(int error_code, bool release_this = true)
     {
         printf("%p:%p end: %s, %s, %d\n", this, socket_, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
-
-        if (error_code != 0)
-            keep_alive_ = false;
 
         if (response_.releaser)
         {
@@ -363,6 +373,8 @@ protected:
             response_.releaser = nullptr;
         }
 
+        if (error_code != 0)
+            keep_alive_ = false;
 #ifdef _ENABLE_KEEP_ALIVE_
         if (keep_alive_)
         {
@@ -374,42 +386,18 @@ protected:
         release();
     }
 
-    void close_socket()
-    {
-        uv_stream_t* tcp = socket_;
-        socket_ = nullptr;
-        if (tcp != nullptr)
-        {
-            uv_cancel((uv_req_t*)&write_head_req_);
-            uv_req_set_data((uv_req_t*)&write_head_req_, nullptr);
-
-            uv_cancel((uv_req_t*)&write_data_req_);
-            uv_req_set_data((uv_req_t*)&write_data_req_, nullptr);
-            write_data_req_.holder.write_done();
-
-            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-            // printf("%p:%p socket closed\n", this, tcp);
-
-            for (auto it = _holder_list.cbegin(); it != _holder_list.cend(); it++)
-            {
-                if (it->done)
-                    it->done(it->content);
-            }
-            _holder_list.clear();
-        }
-    }
-
 private:
     static void on_written_cb(uv_write_t* req, int status)
     {
         _responser* p_this = (_responser*)uv_req_get_data((uv_req_t*)req);
+        ((_write_req*)req)->done();
         if (p_this == nullptr)
+        {
+            delete req;
             return;
+        }
 
-        p_this->is_writing_ = false;
-        if (req == &p_this->write_data_req_)
-            p_this->write_data_req_.holder.write_done();
+        p_this->writing_ = false;
 
         int r = status;
         if (status >= 0)
@@ -475,38 +463,28 @@ bool server::serve_file(const std::string& path, const request& req, response2& 
         return false;
     }
 
-    uv_fs_t open_req;
-    int flags = UV_FS_O_RDONLY | UV_FS_O_SEQUENTIAL;
-    uv_file fs_file = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
-    uv_fs_req_cleanup(&open_req);
-    if (fs_file < 0)
-    {
-        printf("open file: %s, %s\n", path.c_str(), uv_err_name(fs_file));
-        res.status_code = 404;
-        return false;
-    }
-
-    uv_buf_t* p_buf = (uv_buf_t*)buffer_pool_->get_buffer(sizeof(uv_buf_t) + _buffer_size);
-    if (p_buf == nullptr)
+    file_reader* reader = new file_reader(loop_, path, buffer_pool_);
+    if (reader == nullptr)
     {
         res.status_code = 500;
         return false;
-    } 
+    }
+    if (reader->get_fd() < 0)
+    {
+        delete reader;
+        res.status_code = 500;
+        return false;
+    }
 
     res.content_length = length;
     res.provider = [=](int64_t offset, int64_t length, content_sink sink) {
-        p_buf->base = (char*)p_buf + sizeof(uv_buf_t);
-        p_buf->len = std::min(_buffer_size, (size_t)(length - offset));
-        uv_fs_t read_req;
-        int size = uv_fs_read(loop_, &read_req, fs_file, p_buf, 1, offset, nullptr);
-        uv_fs_req_cleanup(&read_req);
-        sink(p_buf->base, size, nullptr, nullptr);
+        size_t size = std::min(_buffer_size, (size_t)(length - offset));
+        int r = reader->request_chunk(offset, size, sink);
+        if (r < 0 && r != UV_EAGAIN)
+            sink(nullptr, r, nullptr);
     };
     res.releaser = [=]() {
-        uv_fs_t close_req;
-        uv_fs_close(loop_, &close_req, fs_file, nullptr);
-        uv_fs_req_cleanup(&close_req);
-        buffer_pool_->recycle_buffer(p_buf);
+        delete reader;
     };
     return true;
 }

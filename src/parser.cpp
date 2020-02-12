@@ -24,6 +24,7 @@ int parser::start_read(uv_stream_t* socket)
 {
     assert(uv_handle_get_data((uv_handle_t*)socket) == this);
     reset_status();
+    state_ = state_parsing;
     return uv_read_start(socket, on_alloc_cb, on_read_cb);
 }
 
@@ -31,7 +32,7 @@ void parser::reset_status()
 {
     content_received_ = 0;
     content_to_receive_ = 0;
-    headers_parsed_ = false;
+    state_ = state_none;
     received_cache_.clear();
 
     if (chunked_decoder_ != nullptr)
@@ -63,7 +64,7 @@ int parser::on_content_read(const char* data, size_t size)
 
 int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
 {
-    if (headers_parsed_)
+    if (state_ == state_parsed)
         return on_content_read(buf->base, nread);
 
     size_t last_size = received_cache_.size();
@@ -91,10 +92,11 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
         headers->clear();
         r = parse_response(data, size, last_size, *res);
     }
-    headers_parsed_ = r > 0;
 
-    if (headers_parsed_)
+    if (r > 0)
     {
+        state_ = state_parsed;
+
         auto end = headers->cend();
         auto p = end;
 
