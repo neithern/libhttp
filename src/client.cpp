@@ -45,20 +45,27 @@ protected:
     {
     }
 
-    ~_requester()
+    virtual ~_requester()
     {
-        close_socket();
+        uv_stream_t* tcp = socket_;
+        socket_ = nullptr;
+        if (tcp != nullptr)
+        {
+            // printf("%p closing socket %p\n", this, tcp);
+            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
+            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
+        }
     }
 
     int resolve()
     {
-        addrinfo hints = {0};
+        addrinfo hints = {};
         hints.ai_family = PF_INET;
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
         hints.ai_flags = 0;
 
-        uv_getaddrinfo_t* req = new uv_getaddrinfo_t;
+        uv_getaddrinfo_t* req = new uv_getaddrinfo_t{};
         uv_req_set_data((uv_req_t*)req, this);
         int r = uv_getaddrinfo(loop_, req, on_resolved_cb, uri_.host.c_str(), uri_.port.c_str(), &hints);
         if (r != 0)
@@ -83,7 +90,7 @@ protected:
 
         if (content_length != 0)
         {
-            char sz[64] = {0};
+            char sz[64] = {};
             ::snprintf(sz, 64, "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
@@ -104,7 +111,7 @@ protected:
         if (content_length != 0)
             request += request_.body;
 
-        _write_req* req = new _write_req;
+        _write_req* req = new _write_req{};
         req->data = request; // to keep reference of the request
         uv_req_set_data((uv_req_t*)req, this);
 
@@ -138,7 +145,7 @@ protected:
             std::string location = p->second;
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
-                uv_timer_t* timer = new uv_timer_t;
+                uv_timer_t* timer = new uv_timer_t{};
                 uv_timer_init(loop_, timer);
                 uv_handle_set_data((uv_handle_t*)timer, this);
                 int r2 = uv_timer_start(timer, on_redirect_cb, 0, 0);
@@ -171,11 +178,11 @@ protected:
 
     int on_resolved(addrinfo* res)
     {
-        uv_tcp_t* socket = new uv_tcp_t;
+        uv_tcp_t* socket = new uv_tcp_t{};
         uv_tcp_init(loop_, socket);
         uv_handle_set_data((uv_handle_t*)socket, this);
 
-        uv_connect_t* req = new uv_connect_t;
+        uv_connect_t* req = new uv_connect_t{};
         uv_req_set_data((uv_req_t*)req, this);
         int r = uv_tcp_connect(req, socket, res->ai_addr, on_connected_cb);
         if (r == 0)
@@ -196,18 +203,6 @@ protected:
             on_error_(error_code);
 
         release();
-    }
-
-    void close_socket()
-    {
-        uv_stream_t* tcp = socket_;
-        socket_ = nullptr;
-        if (tcp != nullptr)
-        {
-            printf("%p closing socket %p\n", this, tcp);
-            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-        }
     }
 
 private:

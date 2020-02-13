@@ -1,3 +1,4 @@
+#include <assert.h>
 #include "uri.h"
 #include "utils.h"
 

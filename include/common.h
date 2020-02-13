@@ -1,7 +1,9 @@
 #ifndef _http_common_h_
 #define _http_common_h_
 
+#include <algorithm>
 #include <cctype>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_map>

@@ -54,8 +54,7 @@ void* buffer_pool::get_buffer(size_t size)
     p_buf->next = nullptr;
     return (char*)p_buf + sizeof(buffer);
 #else
-    buf.base = (char*)malloc(size);
-    buf.len = size;
+    return (char*)malloc(size);
 #endif
 }
 
@@ -91,7 +90,7 @@ bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
     buf.base = (char*)p_buf + sizeof(buffer);
     buf.len = p_buf->size > size ? p_buf->size : size;
 #else
-    buf.base = ptr;
+    buf.base = (char*)ptr;
     buf.len = size;
 #endif
     return true;

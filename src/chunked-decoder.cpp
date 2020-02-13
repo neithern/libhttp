@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <assert.h>
 #include "chunked-decoder.h"
 #include "utils.h"
 
@@ -8,7 +9,7 @@ namespace http
 int chunked_decoder::decode(const char* data, size_t size, std::function<bool(const char* data, size_t size)> sink)
 {
     size_t src = 0;
-    ssize_t ret = 0;
+    int ret = 0;
 
     while (1)
     {
@@ -117,7 +118,7 @@ int chunked_decoder::decode(const char* data, size_t size, std::function<bool(co
     }
 
 Complete:
-    ret = size - src;
+    ret = (int)(size - src);
 Exit:
     return ret;
 }

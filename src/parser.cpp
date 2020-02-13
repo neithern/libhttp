@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <uv.h>
 #include "chunked-decoder.h"
 #include "parser.h"
@@ -7,6 +8,8 @@
 
 namespace http
 {
+
+constexpr size_t _max_num_headers = 100;
 
 parser::parser(bool request_mode, std::shared_ptr<buffer_pool> buffer_pool)
 {
@@ -66,6 +69,8 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
 {
     if (state_ == state_parsed)
         return on_content_read(buf->base, nread);
+    else if (state_ == state_outputing)
+        return 0;
 
     size_t last_size = received_cache_.size();
     if (last_size > 0)
@@ -134,7 +139,13 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
 void parser::on_alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf)
 {
     parser* p_this = (parser*)uv_handle_get_data((uv_handle_t*)handle);
-    p_this->buffer_pool_->get_buffer(size, *buf);
+    if (p_this != nullptr)
+        p_this->buffer_pool_->get_buffer(size, *buf);
+    else
+    {
+        buf->base = nullptr;
+        buf->len = 0;
+    }
 }
 
 void parser::on_closed_and_delete_cb(uv_handle_t* handle)
@@ -148,14 +159,14 @@ void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
     if (p_this == nullptr)
         return;
 
-    int r = nread;
-    if (nread >= 0)
+    int r = (int)nread;
+    if (nread > 0)
     {
         r = p_this->on_socket_read(nread, buf);
         if (r < 0 && r != UV_E_USER_CANCELED)
             printf("%p:%p read socket: %s\n", p_this, socket, uv_err_name(r));
     }
-    else
+    else if (nread < 0)
         printf("%p:%p on_read_cb: %s\n", p_this, socket, uv_err_name(r));
     p_this->buffer_pool_->recycle_buffer(const_cast<uv_buf_t&>(*buf));
 
@@ -181,8 +192,8 @@ int parser::parse_request(const char* data, size_t size, size_t last_size, reque
     const char* path = nullptr;
     size_t method_len = 0;
     size_t path_len = 0;
-    size_t num_headers = 100;
-    phr_header phr_headers[num_headers];
+    size_t num_headers = _max_num_headers;
+    phr_header phr_headers[_max_num_headers];
 
     int r = phr_parse_request(data, size, &method, &method_len, &path, &path_len, &minor_version,
                                 phr_headers, &num_headers, last_size);
@@ -213,8 +224,8 @@ int parser::parse_response(const char* data, size_t size, size_t last_size, resp
     int minor_version = 0;
     const char* msg = nullptr;
     size_t msg_len = 0;
-    size_t num_headers = 100;
-    phr_header phr_headers[num_headers];
+    size_t num_headers = _max_num_headers;
+    phr_header phr_headers[_max_num_headers];
 
     int r = phr_parse_response(data, size, &minor_version, &res.status_code, &msg, &msg_len,
                                 phr_headers, &num_headers, last_size);

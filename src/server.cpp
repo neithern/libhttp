@@ -9,6 +9,11 @@
 #include "server.h"
 #include "utils.h"
 
+#ifdef _MSC_VER
+#define ssize_t intptr_t
+#undef min
+#endif
+
 namespace http
 {
 
@@ -60,7 +65,7 @@ struct _content_holder : public uv_buf_t
     _content_holder(const char* data = nullptr, size_t size = 0, content_done d = nullptr)
     {
         base = const_cast<char*>(data);
-        len = size;
+        len = (unsigned int)size;
         done = std::move(d);
     }
 
@@ -106,7 +111,7 @@ private:
     int64_t content_written_ = 0;
     int64_t content_to_write_ = 0;
     response2 response_;
-    _write_req* write_req_;
+    _write_req* write_req_ = nullptr;
     std::list<std::shared_ptr<_content_holder>> _holder_list;
 
     bool keep_alive_ = false;
@@ -122,25 +127,21 @@ protected:
         socket_ = socket;
         uv_handle_set_data((uv_handle_t*)socket_, this);
 
-        write_req_ = new _write_req;
-        uv_req_set_data((uv_req_t*)write_req_, this);
-
-        sockaddr_in addr = {0};
+        sockaddr_in addr = {};
         int len = sizeof(addr);
         int r = uv_tcp_getpeername((uv_tcp_t*)socket, (sockaddr*)&addr, &len);
         if (r == 0)
         {
-            char name[256];
+            char name[256] = {};
             r = uv_inet_ntop(addr.sin_family, &addr.sin_addr, name, sizeof(name));
             peer_address_ = name;
         }
     }
 
-    ~_responser()
+    virtual ~_responser()
     {
-        uv_req_set_data((uv_req_t*)write_req_, nullptr);
-        if (!writing_)
-            delete write_req_;
+        if (write_req_ != nullptr)
+            uv_req_set_data((uv_req_t*)write_req_, nullptr);
 
         _holder_list.clear();
 
@@ -201,11 +202,14 @@ protected:
 
     virtual void on_read_done(int error_code)
     {
+        if (state_ == state_outputing)
+            return;
+
         if (error_code >= 0)
         {
             on_route();
         }
-        else if (error_code < 0 && state_ != state_outputing)
+        else
         {
             on_end(error_code, reason_read_done);
         }
@@ -263,11 +267,11 @@ protected:
     }
 
     inline bool is_write_done() { return content_written_ >= content_to_write_; }
-    inline void set_write_done() { content_to_write_ = 0; }
+    inline void set_write_done() { content_written_ = content_to_write_; }
 
     void start_write()
     {
-        char sz[256] = {0};
+        char sz[256] = {};
         headers& headers = response_.headers;
 
         if (_case_equals(request_.method, "HEAD"))
@@ -332,8 +336,10 @@ protected:
 
         state_ = state_outputing;
 
+        write_req_ = new _write_req;
         write_req_->holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
         writing_ = true;
+        uv_req_set_data((uv_req_t*)write_req_, this);
         uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
 
@@ -370,17 +376,18 @@ protected:
             return 0;
         }
 
-        write_req_->holder = _holder_list.front();
+        auto holder = _holder_list.front();
         _holder_list.pop_front();
 
-        ssize_t buf_size = write_req_->holder->len;
+        ssize_t buf_size = holder->len;
         if (buf_size < 0) // write error
-            return buf_size;
-        else if (buf_size > max_read)
-            buf_size = max_read;
+            return (int)buf_size;
 
-        content_written_ += buf_size;
+        write_req_ = new _write_req;
+        write_req_->holder = holder;
         writing_ = true;
+        content_written_ += std::min(buf_size, max_read);
+        uv_req_set_data((uv_req_t*)write_req_, this);
         return uv_write(write_req_, socket_, write_req_->holder.get(), 1, on_written_cb);
     }
 
@@ -414,11 +421,9 @@ private:
     {
         _responser* p_this = (_responser*)uv_req_get_data((uv_req_t*)req);
         ((_write_req*)req)->done();
+        delete req;
         if (p_this == nullptr)
-        {
-            delete req;
             return;
-        }
 
         p_this->writing_ = false;
 
@@ -445,7 +450,7 @@ server::server(uv_loop_t* loop)
 {
     buffer_pool_ = std::make_shared<buffer_pool>(_buffer_size);
     loop_ = loop != nullptr ? loop : uv_default_loop();
-    socket_ = new uv_stream_t;
+    socket_ = new uv_stream_t{};
     uv_tcp_init(loop_, (uv_tcp_t*)socket_);
 }
 
@@ -524,7 +529,7 @@ void server::stop_loop()
 
 void server::on_connection(uv_stream_t* socket)
 {
-    uv_tcp_t* tcp = new uv_tcp_t;
+    uv_tcp_t* tcp = new uv_tcp_t{};
     uv_tcp_init(loop_, tcp);
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
