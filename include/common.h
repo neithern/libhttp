@@ -17,6 +17,7 @@ namespace http
 #define HEADER_CONTENT_TYPE         "Content-Type"
 #define HEADER_LOCATION             "Location"
 #define HEADER_RANGE                "Range"
+#define HEADER_REMOTE_ADDRESS       "Remote-Address"
 #define HEADER_TRANSFER_ENCODING    "Transfer-Encoding"
 #define HEADER_USER_AGENT           "User-Agent"
 
@@ -58,7 +59,7 @@ struct request
     std::optional<int64_t> range_begin;
     std::optional<int64_t> range_end;
 
-    inline bool has_header(const char* header) const { return headers.find(header) != headers.cend(); }
+    inline bool has_header(const char* key) const { return headers.find(key) != headers.cend(); }
     inline bool has_range() const { return range_begin.has_value(); }
 };
 
@@ -73,7 +74,7 @@ struct response
     std::optional<int64_t> content_length;
     headers headers;
 
-    inline bool has_header(const char* header) const { return headers.find(header) != headers.cend(); }
+    inline bool has_header(const char* key) const { return headers.find(key) != headers.cend(); }
     inline bool is_ok() const { return status_code >= 200 && status_code <= 299; }
     inline bool is_redirect() const { return status_code >= 300 && status_code <= 310; }
 };

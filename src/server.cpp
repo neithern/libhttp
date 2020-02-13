@@ -100,6 +100,7 @@ private:
 
     // for input
     request request_;
+    std::string peer_address_;
 
     // for output
     int64_t content_written_ = 0;
@@ -123,6 +124,16 @@ protected:
 
         write_req_ = new _write_req;
         uv_req_set_data((uv_req_t*)write_req_, this);
+
+        sockaddr_in addr = {0};
+        int len = sizeof(addr);
+        int r = uv_tcp_getpeername((uv_tcp_t*)socket, (sockaddr*)&addr, &len);
+        if (r == 0)
+        {
+            char name[256];
+            r = uv_inet_ntop(addr.sin_family, &addr.sin_addr, name, sizeof(name));
+            peer_address_ = name;
+        }
     }
 
     ~_responser()
@@ -228,6 +239,7 @@ protected:
 
         if (router != nullptr)
         {
+            request_.headers[HEADER_REMOTE_ADDRESS] = peer_address_;
             response_.status_code = 200;
             router(request_, response_);
             if (response_.is_ok())
@@ -516,8 +528,7 @@ void server::on_connection(uv_stream_t* socket)
     uv_tcp_init(loop_, tcp);
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
-        _responser* responser = new _responser(loop_, (uv_stream_t*)tcp, buffer_pool_, router_map_, router_list_);
-        responser->start();
+        (new _responser(loop_, (uv_stream_t*)tcp, buffer_pool_, router_map_, router_list_))->start();
     }
     else
     {
