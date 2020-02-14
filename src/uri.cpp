@@ -1,4 +1,3 @@
-#include <assert.h>
 #include "uri.h"
 #include "utils.h"
 
@@ -120,45 +119,33 @@ std::string uri::encode(const std::string& s)
     std::string result;
     for (auto i = 0; s[i]; i++)
     {
-        switch (s[i])
+        auto c = static_cast<uint8_t>(s[i]);
+        bool format = c >= 0x80;
+        if (c < 0x80)
         {
-        case ' ':
-            result += "%20";
-            break;
-        case '+':
-            result += "%2B";
-            break;
-        case '\r':
-            result += "%0D";
-            break;
-        case '\n':
-            result += "%0A";
-            break;
-        case '\'':
-            result += "%27";
-            break;
-        case ',':
-            result += "%2C";
-            break;
-        // case ':': result += "%3A"; break; // ok? probably...
-        case ';':
-            result += "%3B";
-            break;
-        default:
-            auto c = static_cast<uint8_t>(s[i]);
-            if (c >= 0x80)
+            switch (s[i])
             {
-                result += '%';
-                char hex[4];
-                size_t len = snprintf(hex, sizeof(hex) - 1, "%02X", c);
-                assert(len == 2);
-                result.append(hex, len);
+            case ' ':
+            case '+':
+            case '\r':
+            case '\n':
+            case '\'':
+            case ',':
+            case ';':
+            // case ':':
+                format = true;
+                break;
             }
-            else
-            {
-                result += s[i];
-            }
-            break;
+        }
+        if (format)
+        {
+            char hex[8] = {};
+            size_t len = ::snprintf(hex, sizeof(hex), "%%%02X", c);
+            result.append(hex, len);
+        }
+        else
+        {
+            result += s[i];
         }
     }
     return result;

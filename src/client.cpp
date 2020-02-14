@@ -38,6 +38,8 @@ protected:
     on_content on_content_;
     on_error on_error_ = nullptr;
 
+    bool keep_alive_ = false;
+    bool redirecting_ = false;
     uv_stream_t* socket_ = nullptr;
 
     _requester(std::shared_ptr<buffer_pool> buffer_pool)
@@ -47,13 +49,18 @@ protected:
 
     virtual ~_requester()
     {
+        close_socket();
+    }
+
+    void close_socket()
+    {
         uv_stream_t* tcp = socket_;
         socket_ = nullptr;
         if (tcp != nullptr)
         {
-            // printf("%p closing socket %p\n", this, tcp);
             uv_handle_set_data((uv_handle_t*)tcp, nullptr);
             uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
+            // printf("%p:%p socket closed\n", this, tcp);
         }
     }
 
@@ -91,7 +98,7 @@ protected:
         if (content_length != 0)
         {
             char sz[64] = {};
-            ::snprintf(sz, 64, "%zu", content_length);
+            ::snprintf(sz, sizeof(sz), "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
         if (!request_.has_header(HEADER_USER_AGENT))
@@ -148,13 +155,15 @@ protected:
                 uv_timer_t* timer = new uv_timer_t{};
                 uv_timer_init(loop_, timer);
                 uv_handle_set_data((uv_handle_t*)timer, this);
-                int r2 = uv_timer_start(timer, on_redirect_cb, 0, 0);
-                if (r2 == 0)
-                    aquire(); // going to be closed
+                int r = uv_timer_start(timer, on_redirect_cb, 0, 0);
+                redirecting_ = r == 0;
+                if (redirecting_)
+                    keep_alive_ = (p = response_.headers.find(HEADER_CONNECTION)) != end
+                                && string_case_equals()(p->second, "Keep-Alive");  
                 else
                     delete timer;
                 set_read_done();
-                return false; // to be closed
+                return true;
             }
         }
 
@@ -173,7 +182,8 @@ protected:
 
     virtual void on_read_done(int error_code)
     {
-        on_end(error_code);
+        if (!redirecting_)
+            on_end(error_code);
     }
 
     int on_resolved(addrinfo* res)
@@ -223,7 +233,19 @@ private:
         uv_timer_stop(timer);
         delete timer;
 
-        int status = p_this->resolve();
+        p_this->redirecting_ = false;
+
+        int status;
+        if (p_this->keep_alive_)
+        {
+            p_this->keep_alive_ = false;
+            status = p_this->on_connected();
+        }
+        else
+        {
+            p_this->close_socket();
+            status = p_this->resolve();
+        }
         if (status < 0)
             p_this->on_end(status);
     }
