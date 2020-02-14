@@ -364,7 +364,7 @@ protected:
         if (socket_ == nullptr)
             return UV_ESHUTDOWN;
 
-        ssize_t max_read = content_to_write_ - content_written_;
+        int64_t max_read = content_to_write_ - content_written_;
         if (max_read <= 0) // write done
             return 0;
 
@@ -385,7 +385,7 @@ protected:
         assert(writing_req_ == nullptr);
         writing_req_ = new _write_req;
         writing_req_->holder = holder;
-        content_written_ += std::min(buf_size, max_read);
+        content_written_ += std::min((size_t)buf_size, (size_t)max_read);
         uv_req_set_data((uv_req_t*)writing_req_, this);
         return uv_write(writing_req_, socket_, writing_req_->holder.get(), 1, on_written_cb);
     }
