@@ -58,11 +58,8 @@ struct request
     std::string url;
     headers headers;
     std::string body;
-    std::optional<int64_t> range_begin;
-    std::optional<int64_t> range_end;
 
     inline bool has_header(const char* key) const { return headers.find(key) != headers.cend(); }
-    inline bool has_range() const { return range_begin.has_value(); }
 };
 
 using content_done = std::function<void()>;

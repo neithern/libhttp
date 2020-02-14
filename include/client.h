@@ -13,7 +13,7 @@ namespace http
 
 using on_response = std::function<bool(const response& res)>;
 using on_content = std::function<bool(const char* data, size_t size, bool final)>;
-using on_content_body = std::function<void(const std::string& body)>;
+using on_content_body = std::function<void(const std::string& body, int error)>;
 using on_redirect = std::function<bool(std::string& url)>;
 using on_error = std::function<void(int code)>;
 
@@ -27,6 +27,11 @@ public:
                 on_content on_content,
                 on_redirect on_redirect = nullptr,
                 on_error on_error = nullptr);
+
+    bool fetch(const request& request,
+                on_content_body on_body,
+                on_response on_response = [](const response& res) { return res.is_ok(); },
+                on_redirect on_redirect = [](std::string& url) { return true; });
 
     int run_loop();
 

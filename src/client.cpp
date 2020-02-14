@@ -199,7 +199,7 @@ protected:
 
     void on_end(int error_code, bool release_this = true)
     {
-        if (error_code < 0 && on_error_)
+        if (error_code < 0 && error_code != UV_E_USER_CANCELLED && on_error_)
             on_error_(error_code);
 
         release();
@@ -284,6 +284,30 @@ bool client::fetch(const request& request,
         return false;
     }
     return true;
+}
+
+bool client::fetch(const request& request,
+                on_content_body on_body,
+                on_response on_response,
+                on_redirect on_redirect)
+{
+    std::string* body = new std::string();
+    return fetch(request, on_response,
+        [=](const char* data, size_t size, bool final) {
+            body->append(data, size);
+            if (final)
+            {
+                on_body(*body, 0);
+                delete body;
+            }
+            return true;
+        },
+        on_redirect,
+        [=](int code) {
+            on_body(*body, code);
+            delete body;
+        }
+    );
 }
 
 int client::run_loop()

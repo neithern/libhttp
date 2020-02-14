@@ -64,5 +64,13 @@ int main(int argc, const char* argv[])
         }
     );
 
+    http::request req2;
+    req2.url = "http://example.com/";
+    client.fetch(req2,
+        [](const std::string& body, int error) {
+            printf("%s\n", body.c_str());
+        }
+    );
+
     return client.run_loop();
 }

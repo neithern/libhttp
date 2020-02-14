@@ -10,7 +10,7 @@
 namespace http
 {
 
-#define UV_E_USER_CANCELED  (UV_ERRNO_MAX - 1)
+#define UV_E_USER_CANCELLED (UV_ERRNO_MAX - 1)
 #define UV_E_HTTP_HEADERS   (UV_ERRNO_MAX - 2)
 #define UV_E_HTTP_CHUNKED   (UV_ERRNO_MAX - 3)
 

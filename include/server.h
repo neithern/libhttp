@@ -13,13 +13,21 @@ typedef struct uv_stream_s uv_stream_t;
 namespace http
 {
 
+struct request2 : public request
+{
+    std::optional<int64_t> range_begin;
+    std::optional<int64_t> range_end;
+
+    inline bool has_range() const { return range_begin.has_value(); }
+};
+
 struct response2 : public response
 {
     content_provider provider;
     content_done releaser;
 };
 
-using on_router = std::function<void(const request& req, response2& res)>;
+using on_router = std::function<void(const request2& req, response2& res)>;
 
 class server
 {
@@ -29,7 +37,7 @@ public:
 
     void serve(const std::string& pattern, on_router router);
 
-    bool serve_file(const std::string& path, const request& req, response2& res);
+    bool serve_file(const std::string& path, const request2& req, response2& res);
 
     bool listen(const std::string& address, int port);
 
