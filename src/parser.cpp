@@ -51,9 +51,9 @@ int parser::on_content_read(const char* data, size_t size)
     {
         int r = chunked_decoder_->decode(data, size, [&](const char* data, size_t size) {
             if (size > 0)
-                    content_received_ += size;
-                else
-                    set_read_done(); // complete
+                content_received_ += size;
+            else
+                set_read_done(); // complete
             return on_content_received(data, size);
         });
         if (r == -1)
@@ -62,7 +62,7 @@ int parser::on_content_read(const char* data, size_t size)
     }
 
     content_received_ += size;
-    return on_content_received(data, size) ? 0 : UV_E_USER_CANCELED;
+    return on_content_received(data, size) ? 0 : UV_E_USER_CANCELLED;
 }
 
 int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
@@ -119,7 +119,7 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
         content_to_receive_ = content_length.value_or(request_mode_ ? 0 : INT64_MAX);
 
         if (!on_headers_parsed(content_length))
-            return UV_E_USER_CANCELED;
+            return UV_E_USER_CANCELLED;
 
         if (request_mode_ && !content_length)
             set_read_done();
@@ -163,14 +163,16 @@ void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
     if (nread > 0)
     {
         r = p_this->on_socket_read(nread, buf);
-        if (r < 0 && r != UV_E_USER_CANCELED)
+        if (r == UV_E_USER_CANCELLED)
+            p_this->set_read_done();
+        else if (r < 0)
             printf("%p:%p read socket: %s\n", p_this, socket, uv_err_name(r));
     }
     else if (nread < 0)
         printf("%p:%p on_read_cb: %s\n", p_this, socket, uv_err_name(r));
     p_this->buffer_pool_->recycle_buffer(const_cast<uv_buf_t&>(*buf));
 
-    if (r == UV_EOF && !p_this->is_read_done())
+    if (r == UV_EOF)
         p_this->set_read_done();
 
     bool done = p_this->is_read_done();

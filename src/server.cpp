@@ -104,7 +104,7 @@ private:
     const std::vector<std::pair<std::regex, on_router>> router_list_;
 
     // for input
-    request request_;
+    request2 request_;
     std::string peer_address_;
 
     // for output
@@ -430,13 +430,15 @@ private:
         if (status >= 0)
         {
             r = p_this->write_next();
-            if (r < 0 && r != UV_E_USER_CANCELED)
+            if (r == UV_E_USER_CANCELLED)
+                p_this->set_read_done();
+            else if (r < 0)
                 printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
         }
         else
             printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(r));
 
-        if (r == UV_EOF && !p_this->is_write_done())
+        if (r == UV_EOF)
             p_this->set_write_done();
 
         bool done = p_this->is_write_done();
@@ -478,7 +480,7 @@ void server::serve(const std::string& pattern, on_router router)
         router_list_.push_back(std::make_pair(std::regex(pattern), router));
 }
 
-bool server::serve_file(const std::string& path, const request& req, response2& res)
+bool server::serve_file(const std::string& path, const request2& req, response2& res)
 {
     uv_fs_t fs_req;
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
