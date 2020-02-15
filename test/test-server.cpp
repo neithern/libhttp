@@ -42,7 +42,7 @@ int main(int argc, const char* argv[])
 
     http::server server;
 
-    server.serve(".*", [&](const http::request& req, http::response2& res) {
+    server.serve(".*", [&](const http::request2& req, http::response2& res) {
         printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
 
         std::string path = req.url;
