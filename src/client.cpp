@@ -152,16 +152,16 @@ protected:
             std::string location = p->second;
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
-                uv_timer_t* timer = new uv_timer_t{};
-                uv_timer_init(loop_, timer);
-                uv_handle_set_data((uv_handle_t*)timer, this);
-                int r = uv_timer_start(timer, on_redirect_cb, 0, 0);
+                uv_async_t* async = new uv_async_t{};
+                uv_async_init(loop_, async, on_redirect_cb);
+                uv_handle_set_data((uv_handle_t*)async, this);
+                int r = uv_async_send(async);
                 redirecting_ = r == 0;
                 if (redirecting_)
                     keep_alive_ = (p = response_.headers.find(HEADER_CONNECTION)) != end
                                 && string_case_equals()(p->second, "Keep-Alive");  
                 else
-                    delete timer;
+                    delete async;
                 set_read_done();
                 return true;
             }
@@ -227,11 +227,10 @@ private:
             p_this->on_end(status);
     }
 
-    static void on_redirect_cb(uv_timer_t* timer)
+    static void on_redirect_cb(uv_async_t* handle)
     {
-        _requester* p_this = (_requester*)uv_handle_get_data((uv_handle_t*)timer);
-        uv_timer_stop(timer);
-        delete timer;
+        _requester* p_this = (_requester*)uv_handle_get_data((uv_handle_t*)handle);
+        delete handle;
 
         p_this->redirecting_ = false;
 
