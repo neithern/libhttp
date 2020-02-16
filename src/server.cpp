@@ -382,12 +382,13 @@ protected:
         if (buf_size < 0) // write error
             return (int)buf_size;
 
+        content_written_ += std::min((size_t)buf_size, (size_t)max_read);
+
         assert(writing_req_ == nullptr);
         writing_req_ = new _write_req;
         writing_req_->holder = holder;
-        content_written_ += std::min((size_t)buf_size, (size_t)max_read);
         uv_req_set_data((uv_req_t*)writing_req_, this);
-        return uv_write(writing_req_, socket_, writing_req_->holder.get(), 1, on_written_cb);
+        return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
     }
 
     void on_end(int error_code, _end_reason reason)
@@ -482,7 +483,7 @@ void server::serve(const std::string& pattern, on_router router)
 
 bool server::serve_file(const std::string& path, const request2& req, response2& res)
 {
-    uv_fs_t fs_req;
+    uv_fs_t fs_req{};
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
     uint64_t length = fs_req.statbuf.st_size;
     uv_fs_req_cleanup(&fs_req);

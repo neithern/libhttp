@@ -20,7 +20,7 @@ file_reader::file_reader(uv_loop_t* loop, const std::string& path, std::shared_p
     uv_req_set_data((uv_req_t*)read_req_, this);
 
     int flags = UV_FS_O_RDONLY | UV_FS_O_SEQUENTIAL;
-    uv_fs_t open_req;
+    uv_fs_t open_req{};
     fd_ = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
     uv_fs_req_cleanup(&open_req);
 }
