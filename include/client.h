@@ -30,7 +30,7 @@ public:
 
     bool fetch(const request& request,
                 on_content_body on_body,
-                on_response on_response = [](const response& res) { return res.is_ok(); },
+                on_response on_response = nullptr,
                 on_redirect on_redirect = [](std::string& url) { return true; });
 
     int run_loop();

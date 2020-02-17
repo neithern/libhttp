@@ -313,7 +313,11 @@ bool client::fetch(const request& request,
                 on_redirect on_redirect)
 {
     std::string* body = new std::string();
-    return fetch(request, on_response,
+    return fetch(request, on_response ? on_response :
+        [=](const response& res) {
+            body->reserve(res.content_length.value_or(4096));
+            return res.is_ok();
+        },
         [=](const char* data, size_t size, bool final) {
             body->append(data, size);
             if (final)
