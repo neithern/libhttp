@@ -61,6 +61,7 @@ protected:
     std::string received_cache_;
     std::shared_ptr<buffer_pool> buffer_pool_;
     class chunked_decoder* chunked_decoder_ = nullptr;
+    std::function<bool(const char* data, size_t size)> chunked_sink_;
 };
 
 } // namespace http

@@ -112,6 +112,7 @@ private:
     int64_t content_to_write_ = 0;
     response2 response_;
     _write_req* writing_req_ = nullptr;
+    _write_req* write_req_back_ = nullptr;
     std::list<std::shared_ptr<_content_holder>> _holder_list;
 
     bool keep_alive_ = false;
@@ -317,55 +318,81 @@ protected:
             response_.status_msg = "done";
 
         std::string* pstr = new std::string();
-        std::string& res_text = *pstr;
-        res_text.reserve(4096);
-        res_text += "HTTP/1.1 ";
-        res_text += sz;
-        res_text += " ";
-        res_text += response_.status_msg;
-        res_text += " \r\n";
+        pstr->reserve(4096);
+
+        pstr->append("HTTP/1.1 ", 9);
+        pstr->append(sz);
+        pstr->append(" ", 1);
+        pstr->append(response_.status_msg);
+        pstr->append(" \r\n", 3);
         for (auto it = headers.cbegin(); it != headers.cend(); it++)
         {
-            res_text += it->first;
-            res_text += ": ";
-            res_text += it->second;
-            res_text += "\r\n";
+            pstr->append(it->first);
+            pstr->append(": ", 2);
+            pstr->append(it->second);
+            pstr->append("\r\n", 2);
         }
-        res_text += "\r\n";
+        pstr->append("\r\n", 2);
+
+        auto holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
 
         state_ = state_outputing;
 
         assert(writing_req_ == nullptr);
-        writing_req_ = new _write_req;
-        writing_req_->holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
+        writing_req_ = prepare_write_req(holder);
         uv_req_set_data((uv_req_t*)writing_req_, this);
         uv_write(writing_req_, socket_, writing_req_->holder.get(), 1, on_written_cb);
     }
 
-    content_sink content_sink_ = [this](const char* data, size_t size, content_done done)
-    {
-        write_content(data, size, done);
-    };
-
-    void write_content(const char* data, size_t size, content_done done)
-    {
-        _holder_list.push_back(std::make_shared<_content_holder>(data, size, done));
-
-        if (writing_req_ == nullptr)
-        {
-            int r = write_next();
-            if (r < 0 || is_write_done())
-                on_end(r, reason_write_done2);
-        }
-    }
-
-    int write_next()
+    int write_content(std::shared_ptr<_content_holder> holder)
     {
         if (socket_ == nullptr)
             return UV_ESHUTDOWN;
 
-        int64_t max_read = content_to_write_ - content_written_;
-        if (max_read <= 0) // write done
+        if ((ssize_t)holder->len < 0) // write error
+            return (int)holder->len;
+
+        int64_t max_write = content_to_write_ - content_written_;
+        if (holder->len > max_write)
+            holder->len = (size_t)max_write;
+
+        content_written_ += holder->len;
+
+        assert(writing_req_ == nullptr);
+        writing_req_ = prepare_write_req(holder);
+        uv_req_set_data((uv_req_t*)writing_req_, this);
+        return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
+    }
+
+    content_sink content_sink_ = [this](const char* data, size_t size, content_done done)
+    {
+        write_content_by_sink(data, size, done);
+    };
+
+    void write_content_by_sink(const char* data, size_t size, content_done done)
+    {
+        int r = 0;
+        auto holder = std::make_shared<_content_holder>(data, size, done);
+        if (writing_req_ == nullptr && _holder_list.empty())
+        {
+            // write directly if no pending data
+            if (content_to_write_ > content_written_)
+                r = write_content(holder);
+        }
+        else
+        {
+            // append to the list, then write the first one of the list
+            _holder_list.push_back(holder);
+            if (writing_req_ == nullptr)
+                r = write_next();
+        }
+        if (r < 0 || is_write_done())
+            on_end(r, reason_write_done2);
+    }
+
+    int write_next()
+    {
+        if (content_to_write_ <= content_written_) // write done
             return 0;
 
         if (_holder_list.empty())
@@ -377,18 +404,7 @@ protected:
 
         auto holder = _holder_list.front();
         _holder_list.pop_front();
-
-        ssize_t buf_size = holder->len;
-        if (buf_size < 0) // write error
-            return (int)buf_size;
-
-        content_written_ += std::min((size_t)buf_size, (size_t)max_read);
-
-        assert(writing_req_ == nullptr);
-        writing_req_ = new _write_req;
-        writing_req_->holder = holder;
-        uv_req_set_data((uv_req_t*)writing_req_, this);
-        return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
+        return write_content(holder);
     }
 
     void on_end(int error_code, _end_reason reason)
@@ -417,14 +433,29 @@ protected:
     }
 
 private:
+    _write_req* prepare_write_req(std::shared_ptr<_content_holder> holder)
+    {
+        // reuse the write req if possible
+        _write_req* req = write_req_back_ != nullptr ? new (write_req_back_) _write_req : new _write_req;
+        write_req_back_ = nullptr;
+        if (req != nullptr)
+            req->holder = std::move(holder);
+        return req;
+    }
+
     static void on_written_cb(uv_write_t* req, int status)
     {
         _responser* p_this = (_responser*)uv_req_get_data((uv_req_t*)req);
-        ((_write_req*)req)->done();
-        delete req;
+        _write_req* write_req = (_write_req*)req;
+        write_req->done();
         if (p_this == nullptr)
+        {
+            delete write_req;
             return;
+        }
 
+        // swap the write req to reuse it
+        p_this->write_req_back_ = write_req;
         p_this->writing_req_ = nullptr;
 
         int r = status;

@@ -43,19 +43,14 @@ void parser::reset_status()
         delete chunked_decoder_;
         chunked_decoder_ = nullptr;
     }
+    chunked_sink_ = nullptr;
 }
 
 int parser::on_content_read(const char* data, size_t size)
 {
     if (chunked_decoder_ != nullptr)
     {
-        int r = chunked_decoder_->decode(data, size, [&](const char* data, size_t size) {
-            if (size > 0)
-                content_received_ += size;
-            else
-                set_read_done(); // complete
-            return on_content_received(data, size);
-        });
+        int r = chunked_decoder_->decode(data, size, chunked_sink_);
         if (r == -1)
             r = UV_E_HTTP_CHUNKED;
         return r;
@@ -112,6 +107,16 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
         p = headers->find(HEADER_TRANSFER_ENCODING);
         if (chunked_decoder_ != nullptr) delete chunked_decoder_;
         chunked_decoder_ = p != end && string_case_equals().operator()(p->second, "chunked") ? new chunked_decoder : nullptr;
+        if (chunked_decoder_ != nullptr)
+            chunked_sink_ = [this](const char* data, size_t size) {
+                if (size > 0)
+                    content_received_ += size;
+                else
+                    set_read_done(); // complete
+                return on_content_received(data, size);
+            };
+        else
+            chunked_sink_ = nullptr;
 
         std::optional<int64_t> content_length;
         p = headers->find(HEADER_CONTENT_LENGTH);

@@ -11,6 +11,8 @@
 namespace http
 {
 
+static const string_case_equals _case_equals;
+
 struct _write_req : public uv_write_t
 {
     std::string data;
@@ -88,12 +90,12 @@ protected:
         std::string request;
         request.reserve(content_length + 4096);
 
-        request += request_.method;
-        request += ' ';
-        request += uri::encode(uri_.path);
-        request += " HTTP/1.1\r\nHost: ";
-        request += uri_.host;
-        request += "\r\n";
+        request.append(request_.method);
+        request.append(" ");
+        request.append(uri::encode(uri_.path));
+        request.append(" HTTP/1.1\r\nHost: ", 17);
+        request.append(uri_.host);
+        request.append("\r\n", 2);
 
         if (content_length != 0)
         {
@@ -108,15 +110,15 @@ protected:
 
         for (auto it = headers.cbegin(); it != headers.cend(); it++)
         {
-            request += it->first;
-            request += ": ";
-            request += it->second;
-            request += "\r\n";
+            request.append(it->first);
+            request.append(": ", 2);
+            request.append(it->second);
+            request.append("\r\n", 2);
         }
-        request += "\r\n";
+        request.append("\r\n", 2);
 
         if (content_length != 0)
-            request += request_.body;
+            request.append(request_.body);
 
         _write_req* req = new _write_req{};
         req->data = request; // to keep reference of the request
@@ -149,6 +151,7 @@ protected:
             && on_redirect_
             && (p = response_.headers.find(HEADER_LOCATION)) != end)
         {
+            std::string host = uri_.host;
             std::string location = p->second;
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
@@ -158,8 +161,9 @@ protected:
                 int r = uv_async_send(async);
                 redirecting_ = r == 0;
                 if (redirecting_)
-                    keep_alive_ = (p = response_.headers.find(HEADER_CONNECTION)) != end
-                                && string_case_equals()(p->second, "Keep-Alive");  
+                    keep_alive_ = _case_equals(host, uri_.host)
+                                && (p = response_.headers.find(HEADER_CONNECTION)) != end
+                                    && _case_equals(p->second, "Keep-Alive");  
                 else
                     delete async;
                 set_read_done();
@@ -209,9 +213,12 @@ protected:
 
     void on_end(int error_code, bool release_this = true)
     {
-        if (error_code < 0 && error_code != UV_E_USER_CANCELLED && on_error_)
-            on_error_(error_code);
-
+        if (error_code < 0 && error_code != UV_E_USER_CANCELLED)
+        {
+            printf("%p:%p end: %s, %s, %d\n", this, socket_, uv_err_name(error_code), request_.url.c_str(), ref_count_);
+            if (on_error_)
+                on_error_(error_code);
+        }
         release();
     }
 
