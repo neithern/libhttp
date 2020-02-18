@@ -13,16 +13,18 @@ namespace http
 
 static const string_case_equals _case_equals;
 
-struct _write_req : public uv_write_t
-{
-    std::string data;
-};
+static int _requester_count_ = 0;
 
 class _requester : public parser
 {
     define_reference_count(_requester)
 
     friend class client;
+
+    struct _write_req : public uv_write_t
+    {
+        std::string data;
+    };
 
 protected:
     uv_loop_t* loop_;
@@ -47,11 +49,14 @@ protected:
     _requester(std::shared_ptr<buffer_pool> buffer_pool)
         : parser(false, buffer_pool)
     {
+        _requester_count_++;
     }
 
     virtual ~_requester()
     {
         close_socket();
+
+        printf("alive %d responsers\n", --_requester_count_);
     }
 
     void close_socket()
@@ -186,6 +191,9 @@ protected:
 
     virtual void on_read_done(int error_code)
     {
+        if (error_code < 0 && socket_ != nullptr)
+            uv_read_stop(socket_);
+
         if (!redirecting_)
             on_end(error_code);
     }

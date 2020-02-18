@@ -50,52 +50,54 @@ static const char* status_message(int status)
     }
 }
 
-enum _end_reason
-{
-    reason_start_failed,
-    reason_read_done,
-    reason_write_done,
-    reason_write_done2
-};
-
-struct _content_holder : public uv_buf_t
-{
-    content_done done;
-
-    _content_holder(const char* data = nullptr, size_t size = 0, content_done d = nullptr)
-    {
-        base = const_cast<char*>(data);
-        len = (unsigned int)size;
-        done = std::move(d);
-    }
-
-    ~_content_holder()
-    {
-        if (done)
-            done();
-    }
-};
-
-struct _write_req : public uv_write_t
-{
-    std::shared_ptr<_content_holder> holder;
-
-    _write_req()
-    {
-        memset(this, 0, sizeof(uv_write_t));
-    }
-
-    void done()
-    {
-        holder = nullptr;
-    }
-};
+static int _responser_count_ = 0;
 
 class _responser : public parser
 {
     define_reference_count(_responser)
 
     friend class server;
+
+    enum _end_reason
+    {
+        reason_start_failed,
+        reason_read_done,
+        reason_write_done,
+        reason_write_done2
+    };
+
+    struct _content_holder : public uv_buf_t
+    {
+        content_done done;
+
+        _content_holder(const char* data = nullptr, size_t size = 0, content_done d = nullptr)
+        {
+            base = const_cast<char*>(data);
+            len = (unsigned int)size;
+            done = std::move(d);
+        }
+
+        ~_content_holder()
+        {
+            if (done)
+                done();
+        }
+    };
+
+    struct _write_req : public uv_write_t
+    {
+        std::shared_ptr<_content_holder> holder;
+
+        _write_req()
+        {
+            memset(this, 0, sizeof(uv_write_t));
+        }
+
+        void done()
+        {
+            holder = nullptr;
+        }
+    };
 
 private:
     uv_loop_t* loop_;
@@ -136,6 +138,8 @@ protected:
             r = uv_inet_ntop(addr.sin_family, &addr.sin_addr, name, sizeof(name));
             peer_address_ = name;
         }
+
+        _responser_count_++;
     }
 
     virtual ~_responser()
@@ -153,6 +157,8 @@ protected:
             uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
             // printf("%p:%p socket closed\n", this, tcp);
         }
+
+        printf("alive %d responsers\n", --_responser_count_);
     }
 
     void start()
@@ -202,16 +208,15 @@ protected:
 
     virtual void on_read_done(int error_code)
     {
-        if (state_ == state_outputing)
-            return;
+        if (error_code < 0 && socket_ != nullptr)
+            uv_read_stop(socket_);
 
-        if (error_code >= 0)
+        if (state_ != state_outputing)
         {
-            on_route();
-        }
-        else
-        {
-            on_end(error_code, reason_read_done);
+            if (error_code >= 0)
+                on_route();
+            else
+                on_end(error_code, reason_read_done);
         }
     }
 
@@ -341,7 +346,7 @@ protected:
         assert(writing_req_ == nullptr);
         writing_req_ = prepare_write_req(holder);
         uv_req_set_data((uv_req_t*)writing_req_, this);
-        uv_write(writing_req_, socket_, writing_req_->holder.get(), 1, on_written_cb);
+        uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
     }
 
     int write_content(std::shared_ptr<_content_holder> holder)
@@ -371,23 +376,20 @@ protected:
 
     void write_content_by_sink(const char* data, size_t size, content_done done)
     {
-        int r = 0;
         auto holder = std::make_shared<_content_holder>(data, size, done);
         if (writing_req_ == nullptr && _holder_list.empty())
         {
             // write directly if no pending data
             if (content_to_write_ > content_written_)
-                r = write_content(holder);
+                write_content(holder);
         }
         else
         {
             // append to the list, then write the first one of the list
             _holder_list.push_back(holder);
             if (writing_req_ == nullptr)
-                r = write_next();
+                write_next();
         }
-        if (r < 0 || is_write_done())
-            on_end(r, reason_write_done2);
     }
 
     int write_next()
@@ -421,7 +423,9 @@ protected:
         if (keep_alive_)
         {
             printf("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
-            reset_status();
+
+            uv_read_stop(socket_);            
+            start_read(socket_);
             return;
         }
 #endif
@@ -436,7 +440,7 @@ private:
     _write_req* prepare_write_req(std::shared_ptr<_content_holder> holder)
     {
         // reuse the write req if possible
-        _write_req* req = write_req_back_ != nullptr ? new (write_req_back_) _write_req : new _write_req;
+        _write_req* req = write_req_back_ != nullptr ? write_req_back_ : new _write_req;
         write_req_back_ = nullptr;
         if (req != nullptr)
             req->holder = std::move(holder);
