@@ -351,12 +351,6 @@ protected:
 
     int write_content(std::shared_ptr<_content_holder> holder)
     {
-        if (socket_ == nullptr)
-            return UV_ESHUTDOWN;
-
-        if ((ssize_t)holder->len < 0) // write error
-            return (int)holder->len;
-
         int64_t max_write = content_to_write_ - content_written_;
         if (holder->len > max_write)
             holder->len = (size_t)max_write;
@@ -371,26 +365,24 @@ protected:
 
     content_sink content_sink_ = [this](const char* data, size_t size, content_done done)
     {
-        write_content_by_sink(data, size, done);
-    };
-
-    void write_content_by_sink(const char* data, size_t size, content_done done)
-    {
         auto holder = std::make_shared<_content_holder>(data, size, done);
-        if (writing_req_ == nullptr && _holder_list.empty())
+        if (writing_req_ != nullptr)
         {
-            // write directly if no pending data
-            if (content_to_write_ > content_written_)
-                write_content(holder);
-        }
-        else
-        {
-            // append to the list, then write the first one of the list
+            // push to list tail, will be written in on_written_cb()
             _holder_list.push_back(holder);
-            if (writing_req_ == nullptr)
-                write_next();
+            return;
         }
-    }
+
+        if (!_holder_list.empty())
+        {
+            // push to list tail, pop the front
+            _holder_list.push_back(holder);
+            holder = _holder_list.front();
+            _holder_list.pop_front();
+        }
+
+        write_content(holder);
+    };
 
     int write_next()
     {
@@ -406,6 +398,12 @@ protected:
 
         auto holder = _holder_list.front();
         _holder_list.pop_front();
+        if ((ssize_t)holder->len < 0)
+        {
+            // to stop write
+            return (int)holder->len;
+        }
+
         return write_content(holder);
     }
 
