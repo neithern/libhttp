@@ -345,8 +345,8 @@ protected:
 
         assert(writing_req_ == nullptr);
         writing_req_ = prepare_write_req(holder);
-        uv_req_set_data((uv_req_t*)writing_req_, this);
-        uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
+        if (writing_req_ != nullptr)
+            uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
     }
 
     int write_content(std::shared_ptr<_content_holder> holder)
@@ -359,7 +359,8 @@ protected:
 
         assert(writing_req_ == nullptr);
         writing_req_ = prepare_write_req(holder);
-        uv_req_set_data((uv_req_t*)writing_req_, this);
+        if (writing_req_ == nullptr)
+            return UV_ENOMEM;
         return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
     }
 
@@ -381,7 +382,15 @@ protected:
             _holder_list.pop_front();
         }
 
-        write_content(holder);
+        int r = (int)holder->len;
+        if (r > 0)
+            r = write_content(holder);
+        if (r < 0)
+        {
+            // to stop write
+            printf("%p:%p to stop with len %d\n", this, socket_, r);
+            on_written_cb((uv_write_t*)writing_req_, r);
+        }
     };
 
     int write_next()
@@ -441,7 +450,10 @@ private:
         _write_req* req = write_req_back_ != nullptr ? write_req_back_ : new _write_req;
         write_req_back_ = nullptr;
         if (req != nullptr)
+        {
             req->holder = std::move(holder);
+            uv_req_set_data((uv_req_t*)req, this);
+        }
         return req;
     }
 
@@ -568,6 +580,7 @@ void server::on_connection(uv_stream_t* socket)
     uv_tcp_init(loop_, tcp);
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
+        uv_tcp_keepalive(tcp, 1, 30); // in seconds
         (new _responser(loop_, (uv_stream_t*)tcp, buffer_pool_, router_map_, router_list_))->start();
     }
     else
