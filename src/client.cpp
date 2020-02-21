@@ -245,7 +245,7 @@ private:
     static void on_redirect_cb(uv_async_t* handle)
     {
         _requester* p_this = (_requester*)uv_handle_get_data((uv_handle_t*)handle);
-        delete handle;
+        uv_close((uv_handle_t*)handle, on_closed_and_delete_cb);
 
         p_this->redirecting_ = false;
 
