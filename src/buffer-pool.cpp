@@ -111,7 +111,7 @@ void buffer_pool::clear()
     while (header_ != nullptr)
     {
         buffer* next = header_->next;
-        free(next);
+        free(header_);
         header_ = next;
     }
     tailer_ = nullptr;
