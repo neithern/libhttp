@@ -64,7 +64,7 @@ struct request
 };
 
 using content_done = std::function<void()>;
-using content_sink = std::function<void(const char* data, size_t size, std::function<void()> done)>;
+using content_sink = std::function<void(const char* data, size_t size, content_done done)>;
 using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
 
 struct response

@@ -388,8 +388,11 @@ protected:
         if (r < 0)
         {
             // to stop write
-            printf("%p:%p to stop with len %d\n", this, socket_, r);
-            on_written_cb((uv_write_t*)writing_req_, r);
+            printf("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
+            if (writing_req_ != nullptr)
+                on_written_cb((uv_write_t*)writing_req_, r);
+            else
+                on_end(r, reason_write_done2);
         }
     };
 
@@ -547,7 +550,7 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
     if (reader->get_fd() < 0)
     {
         delete reader;
-        res.status_code = 500;
+        res.status_code = 403;
         return false;
     }
 
