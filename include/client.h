@@ -22,16 +22,21 @@ class client
 public:
     client(uv_loop_t* loop = nullptr);
 
-    bool fetch(const request& request,
+    void fetch(const request& request,
                 on_response on_response,
                 on_content on_content,
                 on_redirect on_redirect = nullptr,
                 on_error on_error = nullptr);
 
-    bool fetch(const request& request,
+    void fetch(const request& request,
                 on_content_body on_body,
                 on_response on_response = nullptr,
                 on_redirect on_redirect = [](std::string& url) { return true; });
+
+    // pull local file
+    void pull(const std::string& path,
+                on_content on_content,
+                on_error on_error = nullptr);
 
     int run_loop();
 

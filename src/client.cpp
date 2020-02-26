@@ -3,6 +3,7 @@
 #include <uv.h>
 #include "buffer-pool.h"
 #include "client.h"
+#include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
 #include "uri.h"
@@ -83,7 +84,7 @@ protected:
         uv_req_set_data((uv_req_t*)req, this);
         int r = uv_getaddrinfo(loop_, req, on_resolved_cb, uri_.host.c_str(), uri_.port.c_str(), &hints);
         if (r != 0)
-            on_end(r, false);
+            on_end(r);
         return r;
     }
 
@@ -219,7 +220,7 @@ protected:
         return start_read(socket_);
     }
 
-    void on_end(int error_code, bool release_this = true)
+    void on_end(int error_code)
     {
         if (error_code < 0 && error_code != UV_E_USER_CANCELLED)
         {
@@ -287,23 +288,110 @@ private:
     }
 };
 
+class _file_puller
+{
+    define_reference_count(_file_puller)
+
+    friend class client;
+
+protected:
+    uv_loop_t* loop_;
+    uv_async_t async_;
+    uint64_t length_;
+    uint64_t offset_;
+
+    file_reader* reader_;
+    on_content on_content_;
+    on_error on_error_ = nullptr;
+
+public:
+    _file_puller(uv_loop_t* loop, file_reader* reader, uint64_t length)
+    {
+        loop_ = loop;
+        reader_ = reader;
+        length_ = length;
+        offset_ = 0;
+
+        uv_async_init(loop_, &async_, on_async_cb);
+        uv_handle_set_data((uv_handle_t*)&async_, this);
+    }
+
+    ~_file_puller()
+    {
+        uv_handle_set_data((uv_handle_t*)&async_, nullptr);
+        uv_close((uv_handle_t*)&async_, nullptr);
+    }
+
+    void start()
+    {
+        on_async();
+    }
+
+protected:
+    void on_async()
+    {
+        int r = reader_->request_chunk(offset_, 64 * 1024, sink_);
+        if (r < 0 && r != UV_EAGAIN)
+            on_end(r);
+    }
+
+    void on_end(int error_code)
+    {
+        if (error_code < 0 && on_error_)
+            on_error_(error_code);
+        release();
+    }
+
+    content_sink sink_ = [this](const char* data, size_t size, content_done done)
+    {
+        int r = (int)size;
+        if (r > 0)
+            offset_ += size;
+        bool final_call = r < 0 || offset_ >= length_;
+        on_content_(data, size, final_call);
+        if (done)
+            done();
+
+        if (final_call)
+            on_end(r >= 0 ? 0 : r);
+        else
+            uv_async_send(&async_);
+    };
+
+    static void on_async_cb(uv_async_t* handle)
+    {
+        _file_puller* p_this = (_file_puller*)uv_handle_get_data((uv_handle_t*)handle);
+        if (p_this != nullptr)
+            p_this->on_async();
+    }
+};
+
 client::client(uv_loop_t* loop)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
     loop_ = loop != nullptr ? loop : uv_default_loop();
 }
 
-bool client::fetch(const request& request,
+void client::fetch(const request& request,
                 on_response on_response,
                 on_content on_content,
                 on_redirect on_redirect,
                 on_error on_error)
 {
     _requester* requester = new _requester(buffer_pool_);
+    if (requester == nullptr)
+    {
+        if (on_error)
+            on_error(UV_ENOMEM);
+        return;
+    }
+
     if (!requester->uri_.parse(request.url))
     {
         delete requester;
-        return false;
+        if (on_error)
+            on_error(UV_EINVAL);
+        return;
     }
 
     requester->loop_ = loop_;
@@ -312,42 +400,84 @@ bool client::fetch(const request& request,
     requester->on_content_ = std::move(on_content);
     requester->on_redirect_ = std::move(on_redirect);
     requester->on_error_ = std::move(on_error);
-
-    int ret = requester->resolve();
-    if (ret != 0)
-    {
-        delete requester;
-        return false;
-    }
-    return true;
+    requester->resolve();
 }
 
-bool client::fetch(const request& request,
+void client::fetch(const request& request,
                 on_content_body on_body,
                 on_response on_response,
                 on_redirect on_redirect)
 {
-    std::string* body = new std::string();
-    return fetch(request, on_response ? on_response :
+    std::string* p_body = new std::string();
+    if (p_body == nullptr)
+    {
+        on_body("", UV_ENOMEM);
+        return;
+    }
+
+    auto on_end = [=](int code) {
+        on_body(*p_body, code);
+        delete p_body;
+    };
+
+    fetch(request, on_response ? on_response :
         [=](const response& res) {
-            body->reserve(res.content_length.value_or(4096));
+            p_body->reserve(res.content_length.value_or(4096));
             return res.is_ok();
         },
         [=](const char* data, size_t size, bool final) {
-            body->append(data, size);
+            p_body->append(data, size);
             if (final)
-            {
-                on_body(*body, 0);
-                delete body;
-            }
+                on_end(0);
             return true;
         },
         on_redirect,
-        [=](int code) {
-            on_body(*body, code);
-            delete body;
-        }
+        on_end
     );
+}
+
+void client::pull(const std::string& path,
+                on_content on_content,
+                on_error on_error)
+{
+    uv_fs_t fs_req{};
+    int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
+    uint64_t length = fs_req.statbuf.st_size;
+    uv_fs_req_cleanup(&fs_req);
+    if (r != 0 || fs_req.result != 0 || !(fs_req.statbuf.st_mode & S_IFREG) || length == 0)
+    {
+        if (on_error)
+            on_error(UV_EINVAL);
+        return;
+    }
+
+    file_reader* reader = new file_reader(loop_, path, buffer_pool_);
+    if (reader == nullptr)
+    {
+        if (on_error)
+            on_error(UV_ENOMEM);
+        return;
+    }
+
+    if (reader->get_fd() < 0)
+    {
+        if (on_error)
+            on_error(UV_EACCES);
+        return;
+    }
+
+    _file_puller* puller = new _file_puller(loop_, reader, length);
+    if (puller == nullptr)
+    {
+        delete reader;
+        if (on_error)
+            on_error(UV_ENOMEM);
+        return;
+    }
+
+    puller->on_content_ = std::move(on_content);
+    puller->on_error_ = std::move(on_error);
+    puller->start();
 }
 
 int client::run_loop()

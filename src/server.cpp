@@ -19,7 +19,6 @@ namespace http
 
 #define _ENABLE_KEEP_ALIVE_
 
-static const size_t _buffer_size = 64 * 1024;
 static const size_t _max_request_body_ = 8 * 1024 * 1024;
 static const string_case_equals _case_equals;
 
@@ -498,7 +497,7 @@ private:
 
 server::server(uv_loop_t* loop)
 {
-    buffer_pool_ = std::make_shared<buffer_pool>(_buffer_size);
+    buffer_pool_ = std::make_shared<buffer_pool>();
     loop_ = loop != nullptr ? loop : uv_default_loop();
     socket_ = new uv_stream_t{};
     uv_tcp_init(loop_, (uv_tcp_t*)socket_);
@@ -556,7 +555,7 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
 
     res.content_length = length;
     res.provider = [=](int64_t offset, int64_t length, content_sink sink) {
-        size_t size = std::min(_buffer_size, (size_t)(length - offset));
+        size_t size = std::min(buffer_pool::buffer_size, (size_t)(length - offset));
         int r = reader->request_chunk(offset, size, sink);
         if (r < 0 && r != UV_EAGAIN)
             sink(nullptr, r, nullptr);

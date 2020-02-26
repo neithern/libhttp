@@ -7,21 +7,18 @@
 namespace http
 {
 
-static const size_t _buffer_size = 64 * 1024;
-
 file_reader::file_reader(uv_loop_t* loop, const std::string& path, std::shared_ptr<buffer_pool> buffer_pool)
 {
     loop_ = loop;
     buffer_pool_ = buffer_pool;
-    buffer_pool_->get_buffer(_buffer_size, buffer_);
+    buffer_pool_->get_buffer(buffer_pool::buffer_size, buffer_);
 
     reading_ = false;
     read_req_ = new uv_fs_t{};
     uv_req_set_data((uv_req_t*)read_req_, this);
 
-    int flags = UV_FS_O_RDONLY | UV_FS_O_SEQUENTIAL;
     uv_fs_t open_req{};
-    fd_ = uv_fs_open(loop_, &open_req, path.c_str(), flags, 0, nullptr);
+    fd_ = uv_fs_open(loop_, &open_req, path.c_str(), UV_FS_O_RDONLY | UV_FS_O_SEQUENTIAL, 0, nullptr);
     uv_fs_req_cleanup(&open_req);
 }
 
