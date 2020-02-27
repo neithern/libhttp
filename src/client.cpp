@@ -90,7 +90,7 @@ protected:
 
     int on_connected()
     {
-        headers& headers = request_.headers;
+        string_map& headers = request_.headers;
         size_t content_length = request_.body.size();
 
         std::string request;
@@ -109,9 +109,9 @@ protected:
             ::snprintf(sz, sizeof(sz), "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
-        if (!request_.has_header(HEADER_USER_AGENT))
+        if (!headers.has(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = "libhttp";
-        if (!request_.has_header(HEADER_ACCEPT_ENCODING))
+        if (!headers.has(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 
         for (auto p : headers)

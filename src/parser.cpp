@@ -75,7 +75,7 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
     size_t size = last_size + nread;
 
     int r = 0;
-    headers* headers = nullptr;
+    string_map* headers = nullptr;
     if (request_mode_)
     {
         request* req = on_get_request();

@@ -50,17 +50,22 @@ struct string_case_equals : public std::equal_to<std::string>
     }
 };
 
-using string_map = std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>;
-using headers = string_map;
+class string_map : public std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>
+{
+public:
+    using base = std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>;
+    using base::unordered_map; // inhereit constructor
+
+    inline bool has(const char* key) const { return find(key) != cend(); }
+    inline bool has(const std::string& key) const { return find(key) != cend(); }
+};
 
 struct request
 {
     std::string method = "GET";
     std::string url;
-    headers headers;
+    string_map headers;
     std::string body;
-
-    inline bool has_header(const char* key) const { return headers.find(key) != headers.cend(); }
 };
 
 using content_done = std::function<void()>;
@@ -72,9 +77,8 @@ struct response
     int status_code = 0;
     std::string status_msg;
     std::optional<int64_t> content_length;
-    headers headers;
+    string_map headers;
 
-    inline bool has_header(const char* key) const { return headers.find(key) != headers.cend(); }
     inline bool is_ok() const { return status_code >= 200 && status_code <= 299; }
     inline bool is_redirect() const { return status_code >= 300 && status_code <= 310; }
 };

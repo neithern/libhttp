@@ -252,7 +252,7 @@ protected:
             if (response_.is_ok())
             {
 #ifdef _ENABLE_KEEP_ALIVE_
-                if (keep_alive_ && !response_.has_header(HEADER_CONNECTION))
+                if (keep_alive_ && !response_.headers.has(HEADER_CONNECTION))
                     response_.headers[HEADER_CONNECTION] = "Keep-Alive";
 #endif
             }
@@ -275,7 +275,7 @@ protected:
     void start_write()
     {
         char sz[256] = {};
-        headers& headers = response_.headers;
+        string_map& headers = response_.headers;
 
         if (_case_equals(request_.method, "HEAD"))
         {
@@ -307,12 +307,12 @@ protected:
 
         if (response_.content_length)
         {
-            if (!response_.has_header(HEADER_CONTENT_LENGTH))
+            if (!headers.has(HEADER_CONTENT_LENGTH))
             {
                 ::snprintf(sz, sizeof(sz), "%lld", response_.content_length.value());
                 headers[HEADER_CONTENT_LENGTH] = sz;
             }
-            if (!response_.has_header(HEADER_ACCEPT_RANGES))
+            if (!headers.has(HEADER_ACCEPT_RANGES))
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
 
