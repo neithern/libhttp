@@ -54,8 +54,7 @@ int main(int argc, const char* argv[])
         if (server.serve_file(path, req, res))
         {
             std::string ext = file_extension(path);
-            auto p = mime_types.find(ext);
-            if (p != mime_types.cend())
+            if (auto p = mime_types.find(ext); p != mime_types.cend())
                 res.headers[HEADER_CONTENT_TYPE] = p->second;
         }
     });

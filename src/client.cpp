@@ -114,11 +114,11 @@ protected:
         if (!request_.has_header(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 
-        for (auto it = headers.cbegin(); it != headers.cend(); it++)
+        for (auto p : headers)
         {
-            request.append(it->first);
+            request.append(p.first);
             request.append(": ", 2);
-            request.append(it->second);
+            request.append(p.second);
             request.append("\r\n", 2);
         }
         request.append("\r\n", 2);

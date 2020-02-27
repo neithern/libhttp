@@ -222,18 +222,17 @@ protected:
     void on_route()
     {
         on_router router = nullptr;
-        auto p = router_map_.find(request_.url);
-        if (p != router_map_.cend())
+        if (auto p = router_map_.find(request_.url); p != router_map_.cend())
         {
             router = p->second;
         }
         else
         {
-            for (auto it = router_list_.cbegin(); it != router_list_.cend(); it++)
+            for (auto p : router_list_)
             {
-                if (std::regex_match(request_.url, it->first))
+                if (std::regex_match(request_.url, p.first))
                 {
-                    router = it->second;
+                    router = p.second;
                     break;
                 }
             }
@@ -329,11 +328,11 @@ protected:
         pstr->append(" ", 1);
         pstr->append(response_.status_msg);
         pstr->append(" \r\n", 3);
-        for (auto it = headers.cbegin(); it != headers.cend(); it++)
+        for (auto p : headers)
         {
-            pstr->append(it->first);
+            pstr->append(p.first);
             pstr->append(": ", 2);
-            pstr->append(it->second);
+            pstr->append(p.second);
             pstr->append("\r\n", 2);
         }
         pstr->append("\r\n", 2);
