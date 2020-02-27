@@ -63,10 +63,11 @@ bool uri::parse(const std::string& url)
 
 std::string decode(const std::string& s)
 {
+    const size_t size = s.size();
     std::string result;
-    for (size_t i = 0; i < s.size(); i++)
+    for (size_t i = 0; i < size; i++)
     {
-        if (s[i] == '%' && i + 1 < s.size())
+        if (s[i] == '%' && i + 1 < size)
         {
             if (s[i + 1] == 'u')
             {
@@ -117,13 +118,13 @@ std::string decode(const std::string& s)
 std::string uri::encode(const std::string& s)
 {
     std::string result;
-    for (auto i = 0; s[i]; i++)
+    for (auto c : s)
     {
-        auto c = static_cast<uint8_t>(s[i]);
-        bool format = c >= 0x80;
-        if (c < 0x80)
+        auto b = static_cast<uint8_t>(c);
+        bool format = b >= 0x80;
+        if (b < 0x80)
         {
-            switch (s[i])
+            switch (c)
             {
             case ' ':
             case '+':
@@ -140,12 +141,12 @@ std::string uri::encode(const std::string& s)
         if (format)
         {
             char hex[8] = {};
-            size_t len = ::snprintf(hex, sizeof(hex), "%%%02X", c);
+            size_t len = ::snprintf(hex, sizeof(hex), "%%%02X", b);
             result.append(hex, len);
         }
         else
         {
-            result += s[i];
+            result += c;
         }
     }
     return result;

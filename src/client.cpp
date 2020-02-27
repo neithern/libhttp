@@ -114,7 +114,7 @@ protected:
         if (!headers.has(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 
-        for (auto p : headers)
+        for (auto& p : headers)
         {
             request.append(p.first);
             request.append(": ", 2);

@@ -31,7 +31,7 @@ int main(int argc, const char* argv[])
     client.fetch(req,
         [](const http::response& res) {
             printf("%d %s\n", res.status_code, res.status_msg.c_str());
-            for (auto p : res.headers)
+            for (auto& p : res.headers)
                 printf("%s: %s\n", p.first.c_str(), p.second.c_str());
             return true;
         },

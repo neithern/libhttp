@@ -228,7 +228,7 @@ protected:
         }
         else
         {
-            for (auto p : router_list_)
+            for (auto& p : router_list_)
             {
                 if (std::regex_match(request_.url, p.first))
                 {
@@ -328,7 +328,7 @@ protected:
         pstr->append(" ", 1);
         pstr->append(response_.status_msg);
         pstr->append(" \r\n", 3);
-        for (auto p : headers)
+        for (auto& p : headers)
         {
             pstr->append(p.first);
             pstr->append(": ", 2);
