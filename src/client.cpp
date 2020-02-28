@@ -102,11 +102,7 @@ protected:
         request.append("\r\n", 2);
 
         if (content_length != 0)
-        {
-            char sz[64] = {};
-            ::snprintf(sz, sizeof(sz), "%zu", content_length);
-            headers[HEADER_CONTENT_LENGTH] = sz;
-        }
+            headers[HEADER_CONTENT_LENGTH] = std::to_string(content_length);
         if (!headers.count(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = "libhttp";
         if (!headers.count(HEADER_ACCEPT_ENCODING))

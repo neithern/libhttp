@@ -79,9 +79,9 @@ bool parse_range(const std::string& s, std::optional<int64_t>& begin, std::optio
 
     std::string s1 = s.substr(0, pos);
     std::string s2 = s.substr(pos + 1);
-    begin = ::atoll(s1.c_str());
+    begin = std::stoll(s1.c_str());
     if (!s2.empty())
-        end = ::atoll(s2.c_str());
+        end = std::stoll(s2.c_str());
     return true;
 }
 

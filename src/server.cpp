@@ -269,11 +269,10 @@ protected:
     }
 
     inline bool is_write_done() { return content_written_ >= content_to_write_; }
-    inline void set_write_done() { content_written_ = content_to_write_; }
+    inline void set_write_done() { content_to_write_ = 0; }
 
     void start_write()
     {
-        char sz[256] = {};
         string_map& headers = response_.headers;
 
         if (case_equals(request_.method, "HEAD"))
@@ -288,8 +287,7 @@ protected:
             if (request_.has_range())
             {
                 int64_t range_end = std::min(request_.range_end.value_or(length_1), length_1);
-                ::snprintf(sz, sizeof(sz), "bytes %lld-%lld/%lld", request_.range_begin.value(), range_end, length);
-                headers[HEADER_CONTENT_RANGE] = sz;
+                headers[HEADER_CONTENT_RANGE] = std::string("bytes ") + std::to_string(request_.range_begin.value()) + '-' + std::to_string(range_end) + '/' + std::to_string(length);
                 response_.status_code = 206;
             }
 
@@ -307,25 +305,18 @@ protected:
         if (response_.content_length)
         {
             if (!headers.count(HEADER_CONTENT_LENGTH))
-            {
-                ::snprintf(sz, sizeof(sz), "%lld", response_.content_length.value());
-                headers[HEADER_CONTENT_LENGTH] = sz;
-            }
+                headers[HEADER_CONTENT_LENGTH] = std::to_string(response_.content_length.value());
             if (!headers.count(HEADER_ACCEPT_RANGES))
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
-
-        ::snprintf(sz, sizeof(sz), "%d", response_.status_code);
-        if (response_.status_msg.empty())
-            response_.status_msg = "done";
 
         std::string* pstr = new std::string();
         pstr->reserve(4096);
 
         pstr->append("HTTP/1.1 ", 9);
-        pstr->append(sz);
+        pstr->append(std::to_string(response_.status_code));
         pstr->append(" ", 1);
-        pstr->append(response_.status_msg);
+        pstr->append(!response_.status_msg.empty() ? response_.status_msg : "done");
         pstr->append(" \r\n", 3);
         for (auto& p : headers)
         {

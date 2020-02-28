@@ -120,7 +120,7 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
 
         std::optional<int64_t> content_length;
         p = headers->find(HEADER_CONTENT_LENGTH);
-        content_length = p != end ? ::atoll(p->second.c_str()) : std::optional<int64_t>();
+        content_length = p != end ? std::stoll(p->second.c_str()) : std::optional<int64_t>();
         content_to_receive_ = content_length.value_or(request_mode_ ? 0 : INT64_MAX);
 
         if (!on_headers_parsed(content_length))

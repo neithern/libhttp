@@ -36,7 +36,7 @@ int main(int argc, const char* argv[])
     std::string path = "";
 
     if (argc > 1)
-        port = ::atoi(argv[1]);
+        port = std::stoi(argv[1]);
     if (argc > 2)
         path = argv[2];
 
