@@ -192,7 +192,7 @@ protected:
             parse_range(p->second, request_.range_begin, request_.range_end);
 
         request_.body.clear();
-        request_.body.reserve(content_length.value_or(4096));
+        request_.body.reserve((size_t)content_length.value_or(4096));
 
         printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
         return true;

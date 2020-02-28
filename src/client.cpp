@@ -416,7 +416,7 @@ void client::fetch(const request& request,
 
     fetch(request, on_response ? on_response :
         [=](const response& res) {
-            p_body->reserve(res.content_length.value_or(4096));
+            p_body->reserve((size_t)res.content_length.value_or(4096));
             return res.is_ok();
         },
         [=](const char* data, size_t size, bool final) {

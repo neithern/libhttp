@@ -42,7 +42,7 @@ public:
 
 private:
     uv_loop_t* loop_;
-    std::shared_ptr<struct buffer_pool> buffer_pool_;
+    std::shared_ptr<class buffer_pool> buffer_pool_;
 };
 
 } // namespace http

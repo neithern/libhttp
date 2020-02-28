@@ -129,7 +129,7 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
         if (request_mode_ && !content_length)
             set_read_done();
 
-        if (r < size)
+        if ((size_t)r < size)
             return on_content_read(data + r, size - r);
     }
     else if (r == -2)
