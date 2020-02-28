@@ -55,7 +55,7 @@ int main(int argc, const char* argv[])
         {
             std::string ext = file_extension(path);
             if (auto p = mime_types.find(ext); p != mime_types.cend())
-                res.headers[HEADER_CONTENT_TYPE] = p->second;
+                res.headers[http::HEADER_CONTENT_TYPE] = p->second;
         }
     });
 

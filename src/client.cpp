@@ -12,8 +12,6 @@
 namespace http
 {
 
-static const string_case_equals _case_equals;
-
 static int _requester_count_ = 0;
 
 class _requester : public parser
@@ -109,9 +107,9 @@ protected:
             ::snprintf(sz, sizeof(sz), "%zu", content_length);
             headers[HEADER_CONTENT_LENGTH] = sz;
         }
-        if (!headers.has(HEADER_USER_AGENT))
+        if (!headers.count(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = "libhttp";
-        if (!headers.has(HEADER_ACCEPT_ENCODING))
+        if (!headers.count(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 
         for (auto& p : headers)
@@ -167,9 +165,9 @@ protected:
                 int r = uv_async_send(async);
                 redirecting_ = r == 0;
                 if (redirecting_)
-                    keep_alive_ = _case_equals(host, uri_.host)
+                    keep_alive_ = case_equals(host, uri_.host)
                                 && (p = response_.headers.find(HEADER_CONNECTION)) != end
-                                    && _case_equals(p->second, "Keep-Alive");  
+                                    && case_equals(p->second, "Keep-Alive");  
                 else
                     delete async;
                 set_read_done();

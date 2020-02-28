@@ -14,13 +14,14 @@
 #undef min
 #endif
 
+#define _ENABLE_KEEP_ALIVE_
+
 namespace http
 {
 
-#define _ENABLE_KEEP_ALIVE_
-
 static const size_t _max_request_body_ = 8 * 1024 * 1024;
-static const string_case_equals _case_equals;
+
+static int _responser_count_ = 0;
 
 static const char* status_message(int status)
 {
@@ -48,8 +49,6 @@ static const char* status_message(int status)
     case 500: return "Internal Server Error";
     }
 }
-
-static int _responser_count_ = 0;
 
 class _responser : public parser
 {
@@ -184,7 +183,7 @@ protected:
         auto p = end;
 
         p = request_.headers.find(HEADER_CONNECTION);
-        keep_alive_ = p != end && _case_equals(p->second, "Keep-Alive");
+        keep_alive_ = p != end && case_equals(p->second, "Keep-Alive");
 
         request_.range_begin.reset();
         request_.range_end.reset();
@@ -252,7 +251,7 @@ protected:
             if (response_.is_ok())
             {
 #ifdef _ENABLE_KEEP_ALIVE_
-                if (keep_alive_ && !response_.headers.has(HEADER_CONNECTION))
+                if (keep_alive_ && !response_.headers.count(HEADER_CONNECTION))
                     response_.headers[HEADER_CONNECTION] = "Keep-Alive";
 #endif
             }
@@ -277,7 +276,7 @@ protected:
         char sz[256] = {};
         string_map& headers = response_.headers;
 
-        if (_case_equals(request_.method, "HEAD"))
+        if (case_equals(request_.method, "HEAD"))
         {
             content_written_ = content_to_write_ = 0; // to be done
             response_.content_length = 0;
@@ -307,12 +306,12 @@ protected:
 
         if (response_.content_length)
         {
-            if (!headers.has(HEADER_CONTENT_LENGTH))
+            if (!headers.count(HEADER_CONTENT_LENGTH))
             {
                 ::snprintf(sz, sizeof(sz), "%lld", response_.content_length.value());
                 headers[HEADER_CONTENT_LENGTH] = sz;
             }
-            if (!headers.has(HEADER_ACCEPT_RANGES))
+            if (!headers.count(HEADER_ACCEPT_RANGES))
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
 

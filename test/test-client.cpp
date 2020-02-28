@@ -25,7 +25,7 @@ int main(int argc, const char* argv[])
     http::request req;
     req.url = argv[1];
     https_to_http(req.url); // don't support https
-    req.headers[HEADER_USER_AGENT] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130";
+    req.headers[http::HEADER_USER_AGENT] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130";
 
     http::client client;
     client.fetch(req,

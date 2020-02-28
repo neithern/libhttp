@@ -12,17 +12,17 @@
 namespace http
 {
 
-#define HEADER_ACCEPT_ENCODING      "Accept-Encoding"
-#define HEADER_ACCEPT_RANGES        "Accept-Ranges"
-#define HEADER_CONNECTION           "Connection"
-#define HEADER_CONTENT_LENGTH       "Content-Length"
-#define HEADER_CONTENT_RANGE        "Content-Range"
-#define HEADER_CONTENT_TYPE         "Content-Type"
-#define HEADER_LOCATION             "Location"
-#define HEADER_RANGE                "Range"
-#define HEADER_REMOTE_ADDRESS       "Remote-Address"
-#define HEADER_TRANSFER_ENCODING    "Transfer-Encoding"
-#define HEADER_USER_AGENT           "User-Agent"
+static const std::string HEADER_ACCEPT_ENCODING     = "Accept-Encoding";
+static const std::string HEADER_ACCEPT_RANGES       = "Accept-Ranges";
+static const std::string HEADER_CONNECTION          = "Connection";
+static const std::string HEADER_CONTENT_LENGTH      = "Content-Length";
+static const std::string HEADER_CONTENT_RANGE       = "Content-Range";
+static const std::string HEADER_CONTENT_TYPE        = "Content-Type";
+static const std::string HEADER_LOCATION            = "Location";
+static const std::string HEADER_RANGE               = "Range";
+static const std::string HEADER_REMOTE_ADDRESS      = "Remote-Address";
+static const std::string HEADER_TRANSFER_ENCODING   = "Transfer-Encoding";
+static const std::string HEADER_USER_AGENT          = "User-Agent";
 
 struct string_case_hash : public std::hash<std::string>
 {
@@ -50,15 +50,10 @@ struct string_case_equals : public std::equal_to<std::string>
     }
 };
 
-class string_map : public std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>
-{
-public:
-    using base = std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>;
-    using base::unordered_map; // inhereit constructor
+static const string_case_hash   case_hash;
+static const string_case_equals case_equals;
 
-    inline bool has(const char* key) const { return find(key) != cend(); }
-    inline bool has(const std::string& key) const { return find(key) != cend(); }
-};
+using string_map = std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>;
 
 struct request
 {
