@@ -338,11 +338,16 @@ protected:
 
     content_sink sink_ = [this](const char* data, size_t size, content_done done)
     {
-        int r = (int)size;
-        if (r > 0)
+        if ((int)size > 0)
             offset_ += size;
+
+        int r = (int)size;
         bool final_call = r < 0 || offset_ >= length_;
-        on_content_(data, size, final_call);
+        if (!on_content_(data, size, final_call))
+        {
+            r = UV_E_USER_CANCELLED;
+            final_call = true;
+        }
         if (done)
             done();
 
