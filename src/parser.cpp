@@ -106,7 +106,7 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
 
         p = headers->find(HEADER_TRANSFER_ENCODING);
         if (chunked_decoder_ != nullptr) delete chunked_decoder_;
-        chunked_decoder_ = p != end && string_case_equals().operator()(p->second, "chunked") ? new chunked_decoder : nullptr;
+        chunked_decoder_ = p != end && case_equals(p->second, "chunked") ? new chunked_decoder : nullptr;
         if (chunked_decoder_ != nullptr)
             chunked_sink_ = [this](const char* data, size_t size) {
                 if (size > 0)
@@ -121,12 +121,12 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
         std::optional<int64_t> content_length;
         p = headers->find(HEADER_CONTENT_LENGTH);
         content_length = p != end ? std::stoll(p->second.c_str()) : std::optional<int64_t>();
-        content_to_receive_ = content_length.value_or(request_mode_ ? 0 : INT64_MAX);
+        content_to_receive_ = content_length.value_or((request_mode_ && chunked_decoder_ == nullptr) ? 0 : INT64_MAX);
 
         if (!on_headers_parsed(content_length))
             return UV_E_USER_CANCELLED;
 
-        if (request_mode_ && !content_length)
+        if (request_mode_ && !content_length && chunked_decoder_ == nullptr)
             set_read_done();
 
         if ((size_t)r < size)
