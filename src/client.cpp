@@ -3,6 +3,7 @@
 #include <uv.h>
 #include "buffer-pool.h"
 #include "client.h"
+#include "content-writer.h"
 #include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
@@ -14,16 +15,11 @@ namespace http
 
 static int _requester_count_ = 0;
 
-class _requester : public parser
+class _requester : public parser, public content_writer
 {
     define_reference_count(_requester)
 
     friend class client;
-
-    struct _write_req : public uv_write_t
-    {
-        std::string data;
-    };
 
 protected:
     uv_loop_t* loop_;
@@ -43,10 +39,10 @@ protected:
 
     bool keep_alive_ = false;
     bool redirecting_ = false;
-    uv_stream_t* socket_ = nullptr;
 
-    _requester(std::shared_ptr<buffer_pool> buffer_pool)
-        : parser(false, buffer_pool)
+    _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool) :
+        parser(false, buffer_pool),
+        content_writer(loop, buffer_pool)
     {
         _requester_count_++;
     }
@@ -55,7 +51,7 @@ protected:
     {
         close_socket();
 
-        printf("alive %d responsers\n", --_requester_count_);
+        printf("%d alive responsers\n", --_requester_count_);
     }
 
     void close_socket()
@@ -89,20 +85,17 @@ protected:
     int on_connected()
     {
         string_map& headers = request_.headers;
-        size_t content_length = request_.body.size();
 
-        std::string request;
-        request.reserve(content_length + 4096);
+        std::string* pstr = new std::string();
+        pstr->reserve(4096);
 
-        request.append(request_.method);
-        request.append(" ");
-        request.append(uri::encode(uri_.path));
-        request.append(" HTTP/1.1\r\nHost: ", 17);
-        request.append(uri_.host);
-        request.append("\r\n", 2);
+        pstr->append(request_.method);
+        pstr->append(" ");
+        pstr->append(uri::encode(uri_.path));
+        pstr->append(" HTTP/1.1\r\nHost: ", 17);
+        pstr->append(uri_.host);
+        pstr->append("\r\n", 2);
 
-        if (content_length != 0)
-            headers[HEADER_CONTENT_LENGTH] = std::to_string(content_length);
         if (!headers.count(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = "libhttp";
         if (!headers.count(HEADER_ACCEPT_ENCODING))
@@ -110,28 +103,18 @@ protected:
 
         for (auto& p : headers)
         {
-            request.append(p.first);
-            request.append(": ", 2);
-            request.append(p.second);
-            request.append("\r\n", 2);
+            pstr->append(p.first);
+            pstr->append(": ", 2);
+            pstr->append(p.second);
+            pstr->append("\r\n", 2);
         }
-        request.append("\r\n", 2);
+        pstr->append("\r\n", 2);
 
-        if (content_length != 0)
-            request.append(request_.body);
-
-        _write_req* req = new _write_req{};
-        req->data = request; // to keep reference of the request
-        uv_req_set_data((uv_req_t*)req, this);
-
-        uv_buf_t buf = uv_buf_init(const_cast<char*>(request.c_str()), request.size());
-        int r = uv_write(req, socket_, &buf, 1, on_written_cb);
-        if (r != 0)
-            delete req;
-        return r;
+        auto holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
+        return content_writer::start_write(holder, request_.provider);
     }
 
-    virtual request* on_get_request()
+    virtual request_base* on_get_request()
     {
         assert(!"should not be called!");
         return &request_;
@@ -184,7 +167,7 @@ protected:
         return false;
     }
 
-    virtual void on_read_done(int error_code)
+    virtual void on_read_end(int error_code)
     {
         if (error_code < 0 && socket_ != nullptr)
             uv_read_stop(socket_);
@@ -209,9 +192,10 @@ protected:
         return r;
     }
 
-    int on_written()
+    virtual void on_write_end(int error_code)
     {
-        return start_read(socket_);
+        if (error_code == 0)
+            start_read(socket_);
     }
 
     void on_end(int error_code)
@@ -269,22 +253,11 @@ private:
         if (status < 0)
             p_this->on_end(status);
     }
-
-    static void on_written_cb(uv_write_t* req, int status)
-    {
-        _requester* p_this = (_requester*)uv_req_get_data((uv_req_t*)req);
-        delete req;
-
-        if (status == 0)
-            status = p_this->on_written();
-        if (status < 0)
-            p_this->on_end(status);
-    }
 };
 
-class _file_puller
+class file_puller
 {
-    define_reference_count(_file_puller)
+    define_reference_count(file_puller)
 
     friend class client;
 
@@ -299,7 +272,7 @@ protected:
     on_error on_error_ = nullptr;
 
 public:
-    _file_puller(uv_loop_t* loop, file_reader* reader, uint64_t length)
+    file_puller(uv_loop_t* loop, file_reader* reader, uint64_t length)
     {
         loop_ = loop;
         reader_ = reader;
@@ -310,7 +283,7 @@ public:
         uv_handle_set_data((uv_handle_t*)&async_, this);
     }
 
-    ~_file_puller()
+    ~file_puller()
     {
         uv_handle_set_data((uv_handle_t*)&async_, nullptr);
         uv_close((uv_handle_t*)&async_, nullptr);
@@ -359,7 +332,7 @@ protected:
 
     static void on_async_cb(uv_async_t* handle)
     {
-        _file_puller* p_this = (_file_puller*)uv_handle_get_data((uv_handle_t*)handle);
+        file_puller* p_this = (file_puller*)uv_handle_get_data((uv_handle_t*)handle);
         if (p_this != nullptr)
             p_this->on_async();
     }
@@ -377,7 +350,7 @@ void client::fetch(const request& request,
                 on_redirect on_redirect,
                 on_error on_error)
 {
-    _requester* requester = new _requester(buffer_pool_);
+    _requester* requester = new _requester(loop_, buffer_pool_);
     if (requester == nullptr)
     {
         if (on_error)
@@ -465,7 +438,7 @@ void client::pull(const std::string& path,
         return;
     }
 
-    _file_puller* puller = new _file_puller(loop_, reader, length);
+    file_puller* puller = new file_puller(loop_, reader, length);
     if (puller == nullptr)
     {
         delete reader;

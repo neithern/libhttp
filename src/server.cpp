@@ -3,6 +3,8 @@
 #include <list>
 #include <uv.h>
 #include "buffer-pool.h"
+#include "common.h"
+#include "content-writer.h"
 #include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
@@ -50,7 +52,7 @@ static const char* status_message(int status)
     }
 }
 
-class _responser : public parser
+class _responser : public parser, public content_writer
 {
     define_reference_count(_responser)
 
@@ -64,68 +66,28 @@ class _responser : public parser
         reason_write_done2
     };
 
-    struct _content_holder : public uv_buf_t
-    {
-        content_done done;
-
-        _content_holder(const char* data = nullptr, size_t size = 0, content_done d = nullptr)
-        {
-            base = const_cast<char*>(data);
-            len = (unsigned int)size;
-            done = std::move(d);
-        }
-
-        ~_content_holder()
-        {
-            if (done)
-                done();
-        }
-    };
-
-    struct _write_req : public uv_write_t
-    {
-        std::shared_ptr<_content_holder> holder;
-
-        _write_req()
-        {
-            memset(this, 0, sizeof(uv_write_t));
-        }
-
-        void done()
-        {
-            holder = nullptr;
-        }
-    };
-
 private:
-    uv_loop_t* loop_;
-
-    const std::unordered_map<std::string, on_router>& router_map_;
-    const std::vector<std::pair<std::regex, on_router>> router_list_;
+    const std::unordered_map<std::string, router>& router_map_;
+    const std::vector<std::pair<std::regex, router>> router_list_;
 
     // for input
     request2 request_;
     std::string peer_address_;
 
     // for output
-    int64_t content_written_ = 0;
-    int64_t content_to_write_ = 0;
     response2 response_;
-    _write_req* writing_req_ = nullptr;
-    _write_req* write_req_back_ = nullptr;
-    std::list<std::shared_ptr<_content_holder>> _holder_list;
+    router router_ = { nullptr, nullptr };
 
     bool keep_alive_ = false;
-    uv_stream_t* socket_ = nullptr;
 
 protected:
     _responser(uv_loop_t* loop, uv_stream_t* socket, std::shared_ptr<buffer_pool> buffer_pool,
-            const std::unordered_map<std::string, on_router>& router_map, const std::vector<std::pair<std::regex, on_router>>& router_list)
-        : parser(true, buffer_pool), router_map_(router_map), router_list_(router_list)
+            const std::unordered_map<std::string, router>& router_map, const std::vector<std::pair<std::regex, router>>& router_list) :
+        parser(true, buffer_pool), router_map_(router_map), router_list_(router_list),
+        content_writer(loop, buffer_pool)
     {
-        loop_ = loop;
         socket_ = socket;
-        uv_handle_set_data((uv_handle_t*)socket_, this);
+        uv_handle_set_data((uv_handle_t*)socket, this);
 
         sockaddr_in addr = {};
         int len = sizeof(addr);
@@ -142,21 +104,7 @@ protected:
 
     virtual ~_responser()
     {
-        if (writing_req_ != nullptr)
-            uv_req_set_data((uv_req_t*)writing_req_, nullptr);
-
-        _holder_list.clear();
-
-        uv_stream_t* tcp = socket_;
-        socket_ = nullptr;
-        if (tcp != nullptr)
-        {
-            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-            // printf("%p:%p socket closed\n", this, tcp);
-        }
-
-        printf("alive %d responsers\n", --_responser_count_);
+        printf("%d alive responsers\n", --_responser_count_);
     }
 
     void start()
@@ -166,7 +114,7 @@ protected:
             on_end(r, reason_start_failed);
     }
 
-    virtual request* on_get_request()
+    virtual request_base* on_get_request()
     {
         return &request_;
     }
@@ -191,9 +139,18 @@ protected:
         if (p != end)
             parse_range(p->second, request_.range_begin, request_.range_end);
 
-        request_.body.clear();
-        if (content_length && content_length.value() <= _max_request_body_)
-            request_.body.reserve((size_t)content_length.value());
+        if (auto p = router_map_.find(request_.url); p != router_map_.cend())
+        {
+            router_ = p->second;
+        }
+        else for (auto& p : router_list_)
+        {
+            if (std::regex_match(request_.url, p.first))
+            {
+                router_ = p.second;
+                break;
+            }
+        }
 
         printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
         return true;
@@ -201,11 +158,10 @@ protected:
 
     virtual bool on_content_received(const char* data, size_t size)
     {
-        request_.body.append(data, size);
-        return request_.body.size() < _max_request_body_;
+        return router_.first && router_.first(request_, data, size);
     }
 
-    virtual void on_read_done(int error_code)
+    virtual void on_read_end(int error_code)
     {
         if (error_code < 0 && socket_ != nullptr)
             uv_read_stop(socket_);
@@ -221,34 +177,18 @@ protected:
 
     void on_route()
     {
-        on_router router = nullptr;
-        if (auto p = router_map_.find(request_.url); p != router_map_.cend())
-        {
-            router = p->second;
-        }
-        else
-        {
-            for (auto& p : router_list_)
-            {
-                if (std::regex_match(request_.url, p.first))
-                {
-                    router = p.second;
-                    break;
-                }
-            }
-        }
-
         // set default status
         response_.status_msg.clear();
         response_.headers.clear();
         response_.content_length.reset();
         response_.releaser = nullptr;
 
-        if (router != nullptr)
+        auto on_router = router_.second;
+        if (on_router)
         {
             request_.headers[HEADER_REMOTE_ADDRESS] = peer_address_;
             response_.status_code = 200;
-            router(request_, response_);
+            on_router(request_, response_);
             if (response_.is_ok())
             {
 #ifdef _ENABLE_KEEP_ALIVE_
@@ -266,11 +206,9 @@ protected:
         }
         if (response_.status_msg.empty())
             response_.status_msg = status_message(response_.status_code);
+
         start_write();
     }
-
-    inline bool is_write_done() { return content_written_ >= content_to_write_; }
-    inline void set_write_done() { content_to_write_ = 0; }
 
     void start_write()
     {
@@ -331,81 +269,12 @@ protected:
         auto holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
 
         state_ = state_outputing;
-
-        assert(writing_req_ == nullptr);
-        writing_req_ = prepare_write_req(holder);
-        if (writing_req_ != nullptr)
-            uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
+        content_writer::start_write(holder, response_.provider);
     }
 
-    int write_content(std::shared_ptr<_content_holder> holder)
+    virtual void on_write_end(int error_code)
     {
-        int64_t max_write = content_to_write_ - content_written_;
-        if (holder->len > max_write)
-            holder->len = (size_t)max_write;
-
-        content_written_ += holder->len;
-
-        assert(writing_req_ == nullptr);
-        writing_req_ = prepare_write_req(holder);
-        if (writing_req_ == nullptr)
-            return UV_ENOMEM;
-        return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
-    }
-
-    content_sink content_sink_ = [this](const char* data, size_t size, content_done done)
-    {
-        auto holder = std::make_shared<_content_holder>(data, size, done);
-        if (writing_req_ != nullptr)
-        {
-            // push to list tail, will be written in on_written_cb()
-            _holder_list.push_back(holder);
-            return;
-        }
-
-        if (!_holder_list.empty())
-        {
-            // push to list tail, pop the front
-            _holder_list.push_back(holder);
-            holder = _holder_list.front();
-            _holder_list.pop_front();
-        }
-
-        int r = (int)holder->len;
-        if (r > 0)
-            r = write_content(holder);
-        if (r < 0)
-        {
-            // to stop write
-            printf("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
-            if (writing_req_ != nullptr)
-                on_written_cb((uv_write_t*)writing_req_, r);
-            else
-                on_end(r, reason_write_done2);
-        }
-    };
-
-    int write_next()
-    {
-        if (content_to_write_ <= content_written_) // write done
-            return 0;
-
-        if (_holder_list.empty())
-        {
-            // prepare next content
-            response_.provider(content_written_, content_to_write_, content_sink_);
-            return 0;
-        }
-
-        auto holder = _holder_list.front();
-        _holder_list.pop_front();
-        if ((ssize_t)holder->len < 0)
-        {
-            // to stop write
-            return (int)holder->len;
-        }
-
-        return write_content(holder);
+        on_end(error_code, reason_write_done);
     }
 
     void on_end(int error_code, _end_reason reason)
@@ -433,55 +302,6 @@ protected:
         state_ = state_parsing;
         assert(ref_count_ == 1);
         release();
-    }
-
-private:
-    _write_req* prepare_write_req(std::shared_ptr<_content_holder> holder)
-    {
-        // reuse the write req if possible
-        _write_req* req = write_req_back_ != nullptr ? write_req_back_ : new _write_req;
-        write_req_back_ = nullptr;
-        if (req != nullptr)
-        {
-            req->holder = std::move(holder);
-            uv_req_set_data((uv_req_t*)req, this);
-        }
-        return req;
-    }
-
-    static void on_written_cb(uv_write_t* req, int status)
-    {
-        _responser* p_this = (_responser*)uv_req_get_data((uv_req_t*)req);
-        _write_req* write_req = (_write_req*)req;
-        write_req->done();
-        if (p_this == nullptr)
-        {
-            delete write_req;
-            return;
-        }
-
-        // swap the write req to reuse it
-        p_this->write_req_back_ = write_req;
-        p_this->writing_req_ = nullptr;
-
-        int r = status;
-        if (status >= 0)
-        {
-            r = p_this->write_next();
-            if (r == UV_E_USER_CANCELLED)
-                p_this->set_write_done();
-            else if (r < 0)
-                printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
-        }
-        else
-            printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(r));
-
-        if (r == UV_EOF)
-            p_this->set_write_done();
-
-        bool done = p_this->is_write_done();
-        if (r < 0 || done)
-            p_this->on_end(r, reason_write_done);
     }
 };
 
@@ -511,8 +331,14 @@ bool server::listen(const std::string& address, int port)
     return r == 0;
 }
 
-void server::serve(const std::string& pattern, on_router router)
+void server::serve(const std::string& pattern, on_router on_router)
 {
+    serve(pattern, [](const request2& req, const char* data, size_t size) { return true; }, on_router);
+}
+
+void server::serve(const std::string& pattern, on_request on_request, on_router on_router)
+{
+    router router = { on_request, on_router };
     auto p = router_map_.insert_or_assign(pattern, router);
     if (p.second)
         router_list_.push_back(std::make_pair(std::regex(pattern), router));

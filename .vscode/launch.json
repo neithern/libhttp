@@ -18,12 +18,13 @@
             "externalConsole": false,
             "stopAtEntry": false,
             "osx": {
-                "type": "cppdbg",
-                "MIMode": "lldb",
-                "miDebuggerPath": "/Applications/Xcode.app/Contents/Developer/usr/bin/lldb-mi"
+                "MIMode": "lldb"
             },
             "windows": {
-                "type": "cppvsdbg",
+                "type": "cppvsdbg"
+            },
+            "linux": {
+                "MIMode": "lldb"
             },
         }
     ]

@@ -13,7 +13,7 @@ typedef struct uv_stream_s uv_stream_t;
 namespace http
 {
 
-struct request2 : public request
+struct request2 : public request_base
 {
     std::optional<int64_t> range_begin;
     std::optional<int64_t> range_end;
@@ -27,7 +27,9 @@ struct response2 : public response
     content_done releaser;
 };
 
+using on_request = std::function<bool(const request2& req, const char* data, size_t size)>;
 using on_router = std::function<void(const request2& req, response2& res)>;
+using router = std::pair<on_request, on_router>;
 
 class server
 {
@@ -35,7 +37,8 @@ public:
     server(uv_loop_t* loop = nullptr);
     ~server();
 
-    void serve(const std::string& pattern, on_router router);
+    void serve(const std::string& pattern, on_request on_request, on_router on_router);
+    void serve(const std::string& pattern, on_router on_router);
 
     bool serve_file(const std::string& path, const request2& req, response2& res);
 
@@ -53,8 +56,8 @@ private:
     uv_loop_t* loop_;
     uv_stream_t* socket_;
     std::shared_ptr<class buffer_pool> buffer_pool_;
-    std::unordered_map<std::string, on_router> router_map_;
-    std::vector<std::pair<std::regex, on_router>> router_list_;
+    std::unordered_map<std::string, router> router_map_;
+    std::vector<std::pair<std::regex, router>> router_list_;
 };
 
 } // namespace http

@@ -55,17 +55,22 @@ static const string_case_equals case_equals;
 
 using string_map = std::unordered_map<std::string, std::string, string_case_hash, string_case_equals>;
 
-struct request
+using content_done = std::function<void()>;
+using content_sink = std::function<void(const char* data, size_t size, content_done done)>;
+using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
+
+struct request_base
 {
     std::string method = "GET";
     std::string url;
     string_map headers;
-    std::string body;
+    content_provider provider;
 };
 
-using content_done = std::function<void()>;
-using content_sink = std::function<void(const char* data, size_t size, content_done done)>;
-using content_provider = std::function<void(int64_t offset, int64_t length, content_sink sink)>;
+struct request : public request_base
+{
+    content_provider provider;
+};
 
 struct response
 {

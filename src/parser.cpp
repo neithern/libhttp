@@ -25,7 +25,6 @@ parser::~parser()
 
 int parser::start_read(uv_stream_t* socket)
 {
-    assert(uv_handle_get_data((uv_handle_t*)socket) == this);
     reset_status();
     state_ = state_parsing;
     return uv_read_start(socket, on_alloc_cb, on_read_cb);
@@ -78,10 +77,9 @@ int parser::on_socket_read(ssize_t nread, const uv_buf_t* buf)
     string_map* headers = nullptr;
     if (request_mode_)
     {
-        request* req = on_get_request();
+        request_base* req = on_get_request();
         req->method.clear();
         req->url.clear();
-        req->body.clear();
         headers = &req->headers;
         headers->clear();
         r = parse_request(data, size, last_size, *req);
@@ -182,7 +180,7 @@ void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
 
     bool done = p_this->is_read_done();
     if (r < 0 || done)
-        p_this->on_read_done(r);
+        p_this->on_read_end(r);
 }
 
 static int check_is_http(const char* data, size_t size, size_t last_size, int r)
@@ -192,7 +190,7 @@ static int check_is_http(const char* data, size_t size, size_t last_size, int r)
     return r;
 }
 
-int parser::parse_request(const char* data, size_t size, size_t last_size, request& req)
+int parser::parse_request(const char* data, size_t size, size_t last_size, request_base& req)
 {
     int minor_version = 0;
     const char* method = nullptr;

@@ -42,16 +42,16 @@ protected:
     int on_content_read(const char* data, size_t size);
     int on_socket_read(ssize_t nread, const uv_buf_t* buf);
 
-    virtual request* on_get_request() = 0;
+    virtual request_base* on_get_request() = 0;
     virtual response* on_get_response() = 0;
     virtual bool on_headers_parsed(std::optional<int64_t> content_length) = 0;
     virtual bool on_content_received(const char* data, size_t size) = 0;
-    virtual void on_read_done(int error_code) = 0;
+    virtual void on_read_end(int error_code) = 0;
 
     static void on_alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf);
     static void on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf);
 
-    static int parse_request(const char* data, size_t size, size_t last_size, request& req);
+    static int parse_request(const char* data, size_t size, size_t last_size, request_base& req);
     static int parse_response(const char* data, size_t size, size_t last_size, response& res);
 
 protected:
