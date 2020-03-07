@@ -57,11 +57,11 @@ bool uri::parse(const std::string& url)
         offset += port.size();
     }
 
-    path = offset == size ? "/" : url.substr(offset);
+    path = offset == size ? "/" : decode(url.substr(offset));
     return true;
 }
 
-std::string decode(const std::string& s)
+std::string uri::decode(const std::string& s)
 {
     const size_t size = s.size();
     std::string result;
