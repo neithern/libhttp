@@ -192,7 +192,8 @@ protected:
             parse_range(p->second, request_.range_begin, request_.range_end);
 
         request_.body.clear();
-        request_.body.reserve((size_t)content_length.value_or(4096));
+        if (content_length && content_length.value() <= _max_request_body_)
+            request_.body.reserve((size_t)content_length.value());
 
         printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
         return true;
@@ -468,7 +469,7 @@ private:
         {
             r = p_this->write_next();
             if (r == UV_E_USER_CANCELLED)
-                p_this->set_read_done();
+                p_this->set_write_done();
             else if (r < 0)
                 printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
         }
@@ -576,7 +577,7 @@ void server::on_connection(uv_stream_t* socket)
     }
     else
     {
-        uv_close((uv_handle_t*)tcp, _responser::on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)tcp, parser::on_closed_and_delete_cb);
     }
 }
 

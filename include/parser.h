@@ -31,6 +31,8 @@ public:
 
     int start_read(uv_stream_t* socket);
 
+    static void on_closed_and_delete_cb(uv_handle_t* handle);
+
 protected:
     inline bool is_read_done() { return content_received_ >= content_to_receive_; }
     void set_read_done() { content_to_receive_ = 0; }
@@ -47,7 +49,6 @@ protected:
     virtual void on_read_done(int error_code) = 0;
 
     static void on_alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf);
-    static void on_closed_and_delete_cb(uv_handle_t* handle);
     static void on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf);
 
     static int parse_request(const char* data, size_t size, size_t last_size, request& req);
