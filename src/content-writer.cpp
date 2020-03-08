@@ -1,5 +1,6 @@
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <assert.h>
 #include <uv.h>
 #include "buffer-pool.h"
 #include "common.h"
