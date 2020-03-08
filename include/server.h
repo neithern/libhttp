@@ -27,9 +27,16 @@ struct response2 : public response
     content_done releaser;
 };
 
-using on_request = std::function<bool(const request2& req, const char* data, size_t size)>;
+using on_request_start = std::function<bool(const request2& req)>;
+using on_request_data = std::function<bool(const char* data, size_t size)>;
 using on_router = std::function<void(const request2& req, response2& res)>;
-using router = std::pair<on_request, on_router>;
+
+struct router
+{
+    on_request_start on_start;
+    on_request_data on_data;
+    on_router on_router;
+};
 
 class server
 {
@@ -37,8 +44,8 @@ public:
     server(uv_loop_t* loop = nullptr);
     ~server();
 
-    void serve(const std::string& pattern, on_request on_request, on_router on_router);
     void serve(const std::string& pattern, on_router on_router);
+    void serve(const std::string& pattern, router router);
 
     bool serve_file(const std::string& path, const request2& req, response2& res);
 

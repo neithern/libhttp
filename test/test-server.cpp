@@ -42,6 +42,23 @@ int main(int argc, const char* argv[])
 
     http::server server;
 
+    http::router router =
+    {
+        [](const http::request2& req) {
+            printf("request start: %s %s\n", req.method.c_str(), req.url.c_str());
+            return true;
+        },
+        [](const char* data, size_t size) {
+            printf("request data: %zu\n", size);
+            return true;
+        },
+        [](const http::request2& req, http::response2& res) {
+            printf("request end: %s %s\n", req.method.c_str(), req.url.c_str());
+        }
+    };
+
+    server.serve("/push/.*", router);
+
     server.serve(".*", [&](const http::request2& req, http::response2& res) {
         printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
 
@@ -58,16 +75,6 @@ int main(int argc, const char* argv[])
                 res.headers[http::HEADER_CONTENT_TYPE] = p->second;
         }
     });
-
-    server.serve("/post",
-        [](const http::request2& req, const char* data, size_t size) {
-            printf("request: %s %s: %zu\n", req.method.c_str(), req.url.c_str(), size);
-            return true;
-        },
-        [](const http::request2& req, http::response2& res) {
-            printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
-        }
-    );
 
     bool ret = server.listen("0.0.0.0", port);
     printf("Server listen on port %d: %s\n", port, ret ? "true" : "false");

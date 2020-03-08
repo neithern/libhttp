@@ -76,7 +76,7 @@ private:
 
     // for output
     response2 response_;
-    router router_ = { nullptr, nullptr };
+    router router_ = {};
 
     bool keep_alive_ = false;
 
@@ -153,12 +153,12 @@ protected:
         }
 
         printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
-        return true;
+        return !router_.on_start || router_.on_start(request_);
     }
 
     virtual bool on_content_received(const char* data, size_t size)
     {
-        return router_.first && router_.first(request_, data, size);
+        return !router_.on_data || router_.on_data(data, size);
     }
 
     virtual void on_read_end(int error_code)
@@ -183,12 +183,11 @@ protected:
         response_.content_length.reset();
         response_.releaser = nullptr;
 
-        auto on_router = router_.second;
-        if (on_router)
+        if (router_.on_router)
         {
             request_.headers[HEADER_REMOTE_ADDRESS] = peer_address_;
             response_.status_code = 200;
-            on_router(request_, response_);
+            router_.on_router(request_, response_);
             if (response_.is_ok())
             {
 #ifdef _ENABLE_KEEP_ALIVE_
@@ -333,12 +332,13 @@ bool server::listen(const std::string& address, int port)
 
 void server::serve(const std::string& pattern, on_router on_router)
 {
-    serve(pattern, [](const request2& req, const char* data, size_t size) { return true; }, on_router);
+    router router = {};
+    router.on_router = on_router;
+    serve(pattern, router);
 }
 
-void server::serve(const std::string& pattern, on_request on_request, on_router on_router)
+void server::serve(const std::string& pattern, router router)
 {
-    router router = { on_request, on_router };
     auto p = router_map_.insert_or_assign(pattern, router);
     if (p.second)
         router_list_.push_back(std::make_pair(std::regex(pattern), router));
