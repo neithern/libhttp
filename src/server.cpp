@@ -356,15 +356,9 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
         return false;
     }
 
-    file_reader* reader = new file_reader(loop_, path, buffer_pool_);
-    if (reader == nullptr)
-    {
-        res.status_code = 500;
-        return false;
-    }
+    auto reader = std::make_shared<file_reader>(loop_, path, buffer_pool_);
     if (reader->get_fd() < 0)
     {
-        delete reader;
         res.status_code = 403;
         return false;
     }
@@ -375,9 +369,6 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
         int r = reader->request_chunk(offset, size, sink);
         if (r < 0 && r != UV_EAGAIN)
             sink(nullptr, r, nullptr);
-    };
-    res.releaser = [=]() {
-        delete reader;
     };
     return true;
 }
