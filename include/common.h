@@ -26,26 +26,60 @@ static const std::string HEADER_USER_AGENT          = "User-Agent";
 
 struct string_case_hash : public std::hash<std::string>
 {
-    size_t operator()(const std::string& v) const
+    static inline std::uint32_t get_chars(unsigned char const* p)
     {
-        std::string low = v;
-        std::transform(low.begin(), low.end(), low.begin(), ::tolower);
-        return std::hash<std::string>::operator()(low);
+        return p[0] | (p[1] <<  8) | (p[2] << 16) | (p[3] << 24);
+    }
+
+    // from https://github.com/boostorg/beast/blob/develop/include/boost/beast/http/impl/field.ipp
+    size_t operator()(const std::string& s) const
+    {
+        std::uint32_t r = 0;
+        std::size_t n = s.size();
+        auto p = reinterpret_cast<unsigned char const*>(s.data());
+        // consume N characters at a time
+        // VFALCO Can we do 8 on 64-bit systems?
+        while (n >= 4)
+        {
+            auto const v = get_chars(p);
+            r = (r * 5 + (v | 0x20202020)); // convert to lower
+            p += 4;
+            n -= 4;
+        }
+        // handle remaining characters
+        while (n > 0)
+        {
+            r = r * 5 + (*p | 0x20);
+            ++p;
+            --n;
+        }
+        return r;
     }
 };
 
 struct string_case_equals : public std::equal_to<std::string>
 {
-    bool operator()(const std::string& x, const std::string& y) const
+    // from https://github.com/boostorg/beast/blob/develop/include/boost/beast/http/impl/field.ipp
+    bool operator()(const std::string& lhs, const std::string& rhs) const
     {
-        if (x.size() != y.size())
+        using Int = std::uint32_t; // VFALCO std::size_t?
+        auto n = lhs.size();
+        if (n != rhs.size())
             return false;
-
-        for (std::string::const_iterator c1 = x.begin(), c2 = y.begin(); c1 != x.end(); c1++, c2++)
+        auto p1 = reinterpret_cast<unsigned char const*>(lhs.data());
+        auto p2 = reinterpret_cast<unsigned char const*>(rhs.data());
+        auto constexpr S = sizeof(Int);
+        auto constexpr Mask = static_cast<Int>(0xDFDFDFDFDFDFDFDF & ~Int{0});
+        for (; n >= S; p1 += S, p2 += S, n -= S)
         {
-            if (::tolower(*c1) != ::tolower(*c2))
+            Int const v1 = string_case_hash::get_chars(p1);
+            Int const v2 = string_case_hash::get_chars(p2);
+            if ((v1 ^ v2) & Mask)
                 return false;
         }
+        for (; n; ++p1, ++p2, --n)
+            if(( *p1 ^ *p2) & 0xDF)
+                return false;
         return true;
     }
 };
