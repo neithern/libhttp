@@ -267,12 +267,12 @@ protected:
     uint64_t length_;
     uint64_t offset_;
 
-    file_reader* reader_;
+    std::shared_ptr<file_reader> reader_;
     on_content on_content_;
     on_error on_error_ = nullptr;
 
 public:
-    file_puller(uv_loop_t* loop, file_reader* reader, uint64_t length)
+    file_puller(uv_loop_t* loop, std::shared_ptr<file_reader> reader, uint64_t length)
     {
         loop_ = loop;
         reader_ = reader;
@@ -423,7 +423,7 @@ void client::pull(const std::string& path,
         return;
     }
 
-    file_reader* reader = new file_reader(loop_, path, buffer_pool_);
+    std::shared_ptr<file_reader> reader = std::make_shared<file_reader>(loop_, path, buffer_pool_);
     if (reader == nullptr)
     {
         if (on_error)
@@ -441,7 +441,6 @@ void client::pull(const std::string& path,
     file_puller* puller = new file_puller(loop_, reader, length);
     if (puller == nullptr)
     {
-        delete reader;
         if (on_error)
             on_error(UV_ENOMEM);
         return;

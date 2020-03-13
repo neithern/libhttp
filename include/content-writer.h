@@ -32,7 +32,7 @@ public:
     content_writer(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool);
     virtual ~content_writer();
 
-    int start_write(std::shared_ptr<_content_holder> res_headers, content_provider provider);
+    int start_write(std::shared_ptr<_content_holder> headers, content_provider provider);
 
 protected:
     virtual void on_write_end(int error_code) = 0;
@@ -59,6 +59,7 @@ private:
     content_sink content_sink_;
     content_provider content_provider_;
 
+    bool headers_written_ = false;
     _write_req* writing_req_ = nullptr;
     _write_req* write_req_back_ = nullptr;
     std::list<std::shared_ptr<_content_holder>> _holder_list;

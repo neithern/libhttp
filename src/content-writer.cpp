@@ -44,7 +44,7 @@ content_writer::content_writer(uv_loop_t* loop, std::shared_ptr<buffer_pool> buf
     content_sink_ = [this](const char* data, size_t size, content_done done)
     {
         auto holder = std::make_shared<_content_holder>(data, size, done);
-        if (writing_req_ != nullptr)
+        if (!headers_written_ || writing_req_ != nullptr)
         {
             // push to list tail, will be written in on_written_cb()
             _holder_list.push_back(holder);
@@ -67,7 +67,7 @@ content_writer::content_writer(uv_loop_t* loop, std::shared_ptr<buffer_pool> buf
             // to stop write
             printf("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
             if (writing_req_ != nullptr)
-                on_written_cb((uv_write_t*)writing_req_, r);
+                on_written_cb(writing_req_, r);
             else
                 on_write_end(r);
         }
@@ -90,15 +90,23 @@ content_writer::~content_writer()
     }
 }
 
-int content_writer::start_write(std::shared_ptr<_content_holder> res_headers, content_provider provider)
+int content_writer::start_write(std::shared_ptr<_content_holder> headers, content_provider provider)
 {
     content_provider_ = provider;
 
     assert(writing_req_ == nullptr);
-    writing_req_ = prepare_write_req(res_headers);
+    writing_req_ = prepare_write_req(headers);
     if (writing_req_ == nullptr)
         return UV_ENOMEM;
-    return uv_write(writing_req_, socket_, res_headers.get(), 1, on_written_cb);
+
+    int r = uv_write(writing_req_, socket_, headers.get(), 1, on_written_cb);
+    if (r < 0)
+        return r;
+
+    headers_written_ = true;
+    if (content_provider_ && !is_write_done())
+        content_provider_(content_written_, content_to_write_, content_sink_);
+    return 0;
 }
 
 content_writer::_write_req* content_writer::prepare_write_req(std::shared_ptr<_content_holder> holder)
