@@ -11,11 +11,10 @@ file_reader::file_reader(uv_loop_t* loop, const std::string& path, std::shared_p
 {
     loop_ = loop;
     buffer_pool_ = buffer_pool;
-    buffer_pool_->get_buffer(buffer_pool::buffer_size, buffer_);
 
-    reading_ = false;
-    read_req_ = new uv_fs_t{};
-    uv_req_set_data((uv_req_t*)read_req_, this);
+    read_req_ = new read_req{};
+    if (read_req_ != nullptr)
+        uv_req_set_data((uv_req_t*)read_req_, this);
 
     uv_fs_t open_req{};
     fd_ = uv_fs_open(loop_, &open_req, path.c_str(), UV_FS_O_RDONLY | UV_FS_O_SEQUENTIAL, 0, nullptr);
@@ -25,51 +24,74 @@ file_reader::file_reader(uv_loop_t* loop, const std::string& path, std::shared_p
 file_reader::~file_reader()
 {
     if (reading_)
-        uv_cancel((uv_req_t*)read_req_);
+    {
+        if (uv_cancel((uv_req_t*)read_req_) == 0)
+        {
+            buffer_pool_->recycle_buffer(read_req_->buf);
+            delete read_req_;
+        }
+        else
+            uv_req_set_data((uv_req_t*)&read_req_, nullptr);
+    }
     else
+    {
+        buffer_pool_->recycle_buffer(read_req_->buf);
         delete read_req_;
-    uv_req_set_data((uv_req_t*)&read_req_, nullptr);
+    }
 
     uv_fs_t* close_req = new uv_fs_t{};
     uv_fs_close(loop_, close_req, fd_, [](uv_fs_t* req) {
         uv_fs_req_cleanup(req);
         delete req;
     });
-    buffer_pool_->recycle_buffer(buffer_);
 }
 
 int file_reader::request_chunk(int64_t offset, size_t size, content_sink sink)
 {
-    if (buffer_.base == nullptr)
-        return UV_ENOMEM;
-
     sink_ = std::move(sink);
 
     if (reading_)
         return UV_EAGAIN;
 
-    buffer_.len = size;
+    if (read_req_ == nullptr || !buffer_pool_->get_buffer(size, read_req_->buf))
+        return UV_ENOMEM;
+
     reading_ = true;
-    int r = uv_fs_read(loop_, read_req_, fd_, &buffer_, 1, offset, on_read_cb);
+    int r = uv_fs_read(loop_, (uv_fs_t*)read_req_, fd_, &read_req_->buf, 1, offset, on_read_cb);
     if (r < 0)
+    {
+        buffer_pool_->recycle_buffer(read_req_->buf);
         reading_ = false;
+    }
     return r;
 }
 
-void file_reader::on_read(uv_fs_t* req)
+void file_reader::on_read()
 {
+    uv_buf_t buf = read_req_->buf;
+    ssize_t len = uv_fs_get_result(read_req_);
+    read_req_->buf.base = nullptr;
+    read_req_->buf.len = 0;
+
     reading_ = false;
+
+    auto done = [pool = buffer_pool_, buf]() {
+        pool->recycle_buffer((uv_buf_t&)buf);
+    };
+
     if (sink_)
-        sink_(buffer_.base, uv_fs_get_result(req), nullptr);
+        sink_(buf.base, len, done);
+    else
+        done();
 }
 
 void file_reader::on_read_cb(uv_fs_t* req)
 {
     file_reader* p_this = (file_reader*)uv_req_get_data((uv_req_t*)req);
     if (p_this != nullptr)
-        p_this->on_read(req);
+        p_this->on_read();
     else
-        delete req;
+        buffer_pool::free_buffer(((read_req*)req)->buf.base);
 }
 
 } // namespace http

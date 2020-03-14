@@ -14,17 +14,18 @@ public:
     buffer_pool(size_t min_size = buffer_size);
     ~buffer_pool();
 
-    void* get_buffer(size_t size);
-    void recycle_buffer(void* ptr);
-
     bool get_buffer(size_t size, struct uv_buf_t& buf);
     void recycle_buffer(struct uv_buf_t& buf);
 
     void clear();
 
+    // ptr must be alloced by a buffer_pool
+    static void free_buffer(void* ptr);
+
 protected:
     struct buffer* alloc_buffer(size_t size);
-    void free_buffer(struct buffer* buf);
+    void* get_buffer(size_t size);
+    void recycle_buffer(void* ptr);
 
 private:
     size_t min_size_;

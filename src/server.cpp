@@ -265,10 +265,9 @@ protected:
         }
         pstr->append("\r\n", 2);
 
-        auto holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
-
         state_ = state_outputing;
-        content_writer::start_write(holder, response_.provider);
+        auto req = std::make_shared<write_req>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
+        content_writer::start_write(req, response_.provider);
     }
 
     virtual void on_write_end(int error_code)

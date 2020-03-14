@@ -81,16 +81,14 @@ void buffer_pool::recycle_buffer(void* ptr)
 
 bool buffer_pool::get_buffer(size_t size, uv_buf_t& buf)
 {
-    void* ptr = get_buffer(size);
-    if (ptr == nullptr)
-        return ptr;
+    buf.base = (char*)get_buffer(size);
+    if (buf.base == nullptr)
+        return false;
 
 #ifdef _ENABLE_CACHE_
-    buffer* p_buf = (buffer*)((char*)ptr - sizeof(buffer));
-    buf.base = (char*)p_buf + sizeof(buffer);
-    buf.len = p_buf->size > size ? p_buf->size : size;
+    buffer* p_buf = (buffer*)(buf.base - sizeof(buffer));
+    buf.len = static_cast<decltype(buf.len)>(p_buf->size > size ? p_buf->size : size);
 #else
-    buf.base = (char*)ptr;
     buf.len = size;
 #endif
     return true;
@@ -131,9 +129,11 @@ buffer* buffer_pool::alloc_buffer(size_t size)
     return buf;
 }
 
-void buffer_pool::free_buffer(buffer* buf)
+void buffer_pool::free_buffer(void* ptr)
 {
-    free(buf);
+    // ptr must be alloced by a buffer_pool
+    buffer* p_buf = (buffer*)((char*)ptr - sizeof(buffer));
+    free(p_buf);
 }
 
 } // namespace http

@@ -11,27 +11,17 @@
 namespace http
 {
 
-content_writer::_content_holder::_content_holder(const char* data, size_t size, content_done d)
+content_writer::write_req::write_req(const char* data, size_t size, content_done done)
 {
-    base = const_cast<char*>(data);
-    len = (unsigned int)size;
-    done = std::move(d);
+    buf.base = const_cast<char*>(data);
+    buf.len = static_cast<decltype(buf.len)>(size);
+    done_ = done;
 }
 
-content_writer::_content_holder::~_content_holder()
+content_writer::write_req::~write_req()
 {
-    if (done)
-        done();
-}
-
-content_writer::_write_req::_write_req()
-{
-    memset(this, 0, sizeof(uv_write_t));
-}
-
-void content_writer::_write_req::done()
-{
-    holder = nullptr;
+    if (done_)
+        done_();
 }
 
 content_writer::content_writer(uv_loop_t* loop)
@@ -43,31 +33,31 @@ content_writer::content_writer(uv_loop_t* loop)
 
     content_sink_ = [this](const char* data, size_t size, content_done done)
     {
-        auto holder = std::make_shared<_content_holder>(data, size, done);
-        if (!headers_written_ || writing_req_ != nullptr)
+        auto req = std::make_shared<write_req>(data, size, done);
+        if (!headers_written_ || writing_req_)
         {
             // push to list tail, will be written in on_written_cb()
-            _holder_list.push_back(holder);
+            req_list.push_back(req);
             return;
         }
 
-        if (!_holder_list.empty())
+        if (!req_list.empty())
         {
             // push to list tail, pop the front
-            _holder_list.push_back(holder);
-            holder = _holder_list.front();
-            _holder_list.pop_front();
+            req_list.push_back(req);
+            req = req_list.front();
+            req_list.pop_front();
         }
 
-        int r = (int)holder->len;
+        int r = (int)req->buf.len;
         if (r > 0)
-            r = write_content(holder);
+            r = write_content(req);
         if (r < 0)
         {
             // to stop write
             printf("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
-            if (writing_req_ != nullptr)
-                on_written_cb(writing_req_, r);
+            if (writing_req_)
+                on_written_cb(writing_req_.get(), r);
             else
                 on_write_end(r);
         }
@@ -76,10 +66,10 @@ content_writer::content_writer(uv_loop_t* loop)
 
 content_writer::~content_writer()
 {
-    if (writing_req_ != nullptr)
-        uv_req_set_data((uv_req_t*)writing_req_, nullptr);
+    if (writing_req_)
+        uv_req_set_data((uv_req_t*)writing_req_.get(), nullptr);
 
-    _holder_list.clear();
+    req_list.clear();
 
     uv_stream_t* tcp = socket_;
     socket_ = nullptr;
@@ -90,18 +80,20 @@ content_writer::~content_writer()
     }
 }
 
-int content_writer::start_write(std::shared_ptr<_content_holder> headers, content_provider provider)
+int content_writer::start_write(std::shared_ptr<write_req> headers, content_provider provider)
 {
     content_provider_ = provider;
 
-    assert(writing_req_ == nullptr);
-    writing_req_ = prepare_write_req(headers);
-    if (writing_req_ == nullptr)
-        return UV_ENOMEM;
+    assert(!writing_req_);
+    writing_req_ = headers;
+    uv_req_set_data((uv_req_t*)writing_req_.get(), this);
 
-    int r = uv_write(writing_req_, socket_, headers.get(), 1, on_written_cb);
+    int r = uv_write(writing_req_.get(), socket_, &writing_req_->buf, 1, on_written_cb);
     if (r < 0)
+    {
+        writing_req_.reset();
         return r;
+    }
 
     headers_written_ = true;
     prepare_next();
@@ -116,71 +108,54 @@ void content_writer::prepare_next()
         set_write_done();
 }
 
-content_writer::_write_req* content_writer::prepare_write_req(std::shared_ptr<_content_holder> holder)
-{
-    // reuse the write req if possible
-    _write_req* req = write_req_back_ != nullptr ? write_req_back_ : new _write_req;
-    write_req_back_ = nullptr;
-    if (req != nullptr)
-    {
-        req->holder = std::move(holder);
-        uv_req_set_data((uv_req_t*)req, this);
-    }
-    return req;
-}
-
-int content_writer::write_content(std::shared_ptr<_content_holder> holder)
+int content_writer::write_content(std::shared_ptr<write_req> req)
 {
     int64_t max_write = content_to_write_ - content_written_;
-    if (holder->len > max_write)
-        holder->len = (size_t)max_write;
+    if (req->buf.len > max_write)
+        req->buf.len = static_cast<decltype(req->buf.len)>(max_write);
 
-    content_written_ += holder->len;
+    content_written_ += req->buf.len;
 
-    assert(writing_req_ == nullptr);
-    writing_req_ = prepare_write_req(holder);
-    if (writing_req_ == nullptr)
-        return UV_ENOMEM;
-    return uv_write(writing_req_, socket_, holder.get(), 1, on_written_cb);
+    assert(!writing_req_);
+    writing_req_ = req;
+    uv_req_set_data((uv_req_t*)writing_req_.get(), this);
+
+    int r = uv_write(writing_req_.get(), socket_, &writing_req_->buf, 1, on_written_cb);
+    if (r < 0)
+        writing_req_.reset();
+    return r;
 }
 
 int content_writer::write_next()
 {
-    if (is_write_done()) // write done
+    if (is_write_done())
         return 0;
 
-    if (_holder_list.empty())
+    if (req_list.empty())
     {
-        // prepare next content
         prepare_next();
         return 0;
     }
 
-    auto holder = _holder_list.front();
-    _holder_list.pop_front();
-    if ((ssize_t)holder->len < 0)
-    {
-        // to stop write
-        return (int)holder->len;
-    }
+    auto req = req_list.front();
+    req_list.pop_front();
 
-    return write_content(holder);
+    int r = (int)req->buf.len;
+    if (r >= 0)
+        r = write_content(req);
+
+    if (r >= 0 && req_list.empty())
+        prepare_next();
+    return r;
 }
 
 void content_writer::on_written_cb(uv_write_t* req, int status)
 {
     content_writer* p_this = (content_writer*)uv_req_get_data((uv_req_t*)req);
-    _write_req* write_req = (_write_req*)req;
-    write_req->done();
     if (p_this == nullptr)
-    {
-        delete write_req;
         return;
-    }
 
-    // swap the write req to reuse it
-    p_this->write_req_back_ = write_req;
-    p_this->writing_req_ = nullptr;
+    p_this->writing_req_.reset();
 
     int r = status;
     if (status >= 0)

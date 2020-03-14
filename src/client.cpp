@@ -110,8 +110,8 @@ protected:
         }
         pstr->append("\r\n", 2);
 
-        auto holder = std::make_shared<_content_holder>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
-        return content_writer::start_write(holder, request_.provider);
+        auto req = std::make_shared<write_req>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
+        return content_writer::start_write(req, request_.provider);
     }
 
     virtual request_base* on_get_request()
