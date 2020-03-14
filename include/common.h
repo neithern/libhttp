@@ -32,10 +32,10 @@ struct string_case_hash : public std::hash<std::string>
     }
 
     // from https://github.com/boostorg/beast/blob/develop/include/boost/beast/http/impl/field.ipp
-    size_t operator()(const std::string& s) const
+    inline size_t operator()(const std::string& s) const
     {
-        std::uint32_t r = 0;
-        std::size_t n = s.size();
+        size_t r = 0;
+        size_t n = s.size();
         auto p = reinterpret_cast<unsigned char const*>(s.data());
         // consume N characters at a time
         // VFALCO Can we do 8 on 64-bit systems?
@@ -60,21 +60,20 @@ struct string_case_hash : public std::hash<std::string>
 struct string_case_equals : public std::equal_to<std::string>
 {
     // from https://github.com/boostorg/beast/blob/develop/include/boost/beast/http/impl/field.ipp
-    bool operator()(const std::string& lhs, const std::string& rhs) const
+    inline bool operator()(const std::string& lhs, const std::string& rhs) const
     {
-        using Int = std::uint32_t; // VFALCO std::size_t?
         auto n = lhs.size();
         if (n != rhs.size())
             return false;
         auto p1 = reinterpret_cast<unsigned char const*>(lhs.data());
         auto p2 = reinterpret_cast<unsigned char const*>(rhs.data());
-        auto constexpr S = sizeof(Int);
-        auto constexpr Mask = static_cast<Int>(0xDFDFDFDFDFDFDFDF & ~Int{0});
-        for (; n >= S; p1 += S, p2 += S, n -= S)
+        auto constexpr s = sizeof(std::uint32_t);
+        auto constexpr mask = static_cast<std::uint32_t>(0xDFDFDFDFDFDFDFDF & ~std::uint32_t{0});
+        for (; n >= s; p1 += s, p2 += s, n -= s)
         {
-            Int const v1 = string_case_hash::get_chars(p1);
-            Int const v2 = string_case_hash::get_chars(p2);
-            if ((v1 ^ v2) & Mask)
+            std::uint32_t const v1 = string_case_hash::get_chars(p1);
+            std::uint32_t const v2 = string_case_hash::get_chars(p2);
+            if ((v1 ^ v2) & mask)
                 return false;
         }
         for (; n; ++p1, ++p2, --n)

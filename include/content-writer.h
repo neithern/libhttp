@@ -10,7 +10,6 @@ namespace http
 class content_writer
 {
 protected:
-    
     struct _content_holder : public uv_buf_t
     {
         content_done done;
@@ -29,7 +28,7 @@ protected:
     };
 
 public:
-    content_writer(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool);
+    content_writer(uv_loop_t* loop);
     virtual ~content_writer();
 
     int start_write(std::shared_ptr<_content_holder> headers, content_provider provider);
@@ -39,6 +38,8 @@ protected:
 
     inline bool is_write_done() { return content_written_ >= content_to_write_; }
     inline void set_write_done() { content_to_write_ = 0; }
+
+    void prepare_next();
 
     _write_req* prepare_write_req(std::shared_ptr<_content_holder> holder);
 
@@ -54,7 +55,6 @@ protected:
 
 private:
     uv_loop_t* loop_;
-    std::shared_ptr<buffer_pool> buffer_pool_;
 
     content_sink content_sink_;
     content_provider content_provider_;

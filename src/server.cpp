@@ -84,7 +84,7 @@ protected:
     _responser(uv_loop_t* loop, uv_stream_t* socket, std::shared_ptr<buffer_pool> buffer_pool,
             const std::unordered_map<std::string, router>& router_map, const std::vector<std::pair<std::regex, router>>& router_list) :
         parser(true, buffer_pool), router_map_(router_map), router_list_(router_list),
-        content_writer(loop, buffer_pool)
+        content_writer(loop)
     {
         socket_ = socket;
         uv_handle_set_data((uv_handle_t*)socket, this);

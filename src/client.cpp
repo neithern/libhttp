@@ -42,7 +42,7 @@ protected:
 
     _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool) :
         parser(false, buffer_pool),
-        content_writer(loop, buffer_pool)
+        content_writer(loop)
     {
         _requester_count_++;
     }

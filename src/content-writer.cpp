@@ -34,10 +34,10 @@ void content_writer::_write_req::done()
     holder = nullptr;
 }
 
-content_writer::content_writer(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool)
+content_writer::content_writer(uv_loop_t* loop)
 {
     loop_ = loop;
-    buffer_pool_ = buffer_pool;
+
     content_written_ = 0;
     content_to_write_ = 0;
 
@@ -104,9 +104,16 @@ int content_writer::start_write(std::shared_ptr<_content_holder> headers, conten
         return r;
 
     headers_written_ = true;
+    prepare_next();
+    return 0;
+}
+
+void content_writer::prepare_next()
+{
     if (content_provider_ && !is_write_done())
         content_provider_(content_written_, content_to_write_, content_sink_);
-    return 0;
+    else
+        set_write_done();
 }
 
 content_writer::_write_req* content_writer::prepare_write_req(std::shared_ptr<_content_holder> holder)
@@ -139,16 +146,13 @@ int content_writer::write_content(std::shared_ptr<_content_holder> holder)
 
 int content_writer::write_next()
 {
-    if (content_to_write_ <= content_written_) // write done
+    if (is_write_done()) // write done
         return 0;
 
     if (_holder_list.empty())
     {
         // prepare next content
-        if (content_provider_)
-            content_provider_(content_written_, content_to_write_, content_sink_);
-        else
-            set_write_done();
+        prepare_next();
         return 0;
     }
 
