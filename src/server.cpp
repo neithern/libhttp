@@ -25,33 +25,6 @@ static const size_t _max_request_body_ = 8 * 1024 * 1024;
 
 static int _responser_count_ = 0;
 
-static const char* status_message(int status)
-{
-    switch (status)
-    {
-    case 200: return "OK";
-    case 202: return "Accepted";
-    case 204: return "No Content";
-    case 206: return "Partial Content";
-    case 301: return "Moved Permanently";
-    case 302: return "Found";
-    case 303: return "See Other";
-    case 304: return "Not Modified";
-    case 400: return "Bad Request";
-    case 401: return "Unauthorized";
-    case 403: return "Forbidden";
-    case 404: return "Not Found";
-    case 413: return "Payload Too Large";
-    case 414: return "Request-URI Too Long";
-    case 415: return "Unsupported Media Type";
-    case 416: return "Range Not Satisfiable";
-    case 503: return "Service Unavailable";
-
-    default:
-    case 500: return "Internal Server Error";
-    }
-}
-
 class _responser : public parser, public content_writer
 {
     define_reference_count(_responser)
@@ -203,9 +176,6 @@ protected:
             response_.content_length = 0;
             response_.status_code = 404;
         }
-        if (response_.status_msg.empty())
-            response_.status_msg = status_message(response_.status_code);
-
         start_write();
     }
 
@@ -248,13 +218,21 @@ protected:
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
 
+        if (response_.status_msg.empty())
+        {
+            if (auto p = server::status_messages.find(response_.status_code); p != server::status_messages.cend())
+                response_.status_msg = p->second;
+            else
+                response_.status_msg = "Done";
+        }
+
         std::string* pstr = new std::string();
         pstr->reserve(4096);
 
         pstr->append("HTTP/1.1 ", 9);
         pstr->append(std::to_string(response_.status_code));
         pstr->append(" ", 1);
-        pstr->append(!response_.status_msg.empty() ? response_.status_msg : "done");
+        pstr->append(response_.status_msg);
         pstr->append(" \r\n", 3);
         for (auto& p : headers)
         {
@@ -369,6 +347,10 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
         if (r < 0 && r != UV_EAGAIN)
             sink(nullptr, r, nullptr);
     };
+
+    std::string ext = file_extension(path);
+    if (auto p = mime_types.find(ext); p != mime_types.cend())
+        res.headers[http::HEADER_CONTENT_TYPE] = p->second;
     return true;
 }
 
@@ -405,5 +387,47 @@ void server::on_connection_cb(uv_stream_t* socket, int status)
     else
         printf("accept error: %d\n", status);
 }
+
+string_map server::mime_types =
+{
+    { "txt", "text/plain" },
+    { "htm", "text/html" },
+    { "html","text/html" },
+    { "css", "text/css" },
+    { "gif", "image/gif" },
+    { "jpg", "image/jpg" },
+    { "php", "application/x-httpd-php" },
+    { "png", "image/png" },
+    { "svg", "image/svg+xml" },
+    { "flv", "video/x-flv" },
+    { "mp4", "video/mp4" },
+    { "js",  "application/javascript" },
+    { "json","application/json" },
+    { "pdf", "application/pdf" },
+    { "wasm","application/wasm" },
+    { "xml", "application/xml" },
+};
+
+std::unordered_map<int, std::string> server::status_messages =
+{
+    { 200, "OK" },
+    { 202, "Accepted" },
+    { 204, "No Content" },
+    { 206, "Partial Content" },
+    { 301, "Moved Permanently" },
+    { 302, "Found" },
+    { 303, "See Other" },
+    { 304, "Not Modified" },
+    { 400, "Bad Request" },
+    { 401, "Unauthorized" },
+    { 403, "Forbidden" },
+    { 404, "Not Found" },
+    { 413, "Payload Too Large" },
+    { 414, "Request-URI Too Long" },
+    { 415, "Unsupported Media Type" },
+    { 416, "Range Not Satisfiable" },
+    { 500, "Internal Server Error" },
+    { 503, "Service Unavailable" },
+};
 
 } // namespace http

@@ -41,6 +41,10 @@ struct router
 class server
 {
 public:
+    static string_map mime_types;
+    static std::unordered_map<int, std::string> status_messages;
+
+public:
     server(uv_loop_t* loop = nullptr);
     ~server();
 

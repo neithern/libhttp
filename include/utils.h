@@ -9,9 +9,9 @@ namespace http
 
 int decode_hex(int ch);
 
-bool from_hex_to_i(const std::string& s, size_t i, size_t cnt, int& val);
+std::string file_extension(const std::string& path);
 
-std::string from_i_to_hex(size_t n);
+bool from_hex_to_i(const std::string& s, size_t i, size_t cnt, int& val);
 
 bool parse_range(const std::string& s, std::optional<int64_t>& begin, std::optional<int64_t>& end);
 

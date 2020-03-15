@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <cctype>
+#include <regex>
 #include "common.h"
 #include "utils.h"
 
@@ -25,6 +26,15 @@ int decode_hex(int ch)
     {
         return -1;
     }
+}
+
+std::string file_extension(const std::string& path)
+{
+    std::smatch m;
+    static auto re = std::regex("\\.([a-zA-Z0-9]+)$");
+    if (std::regex_search(path, m, re))
+        return m[1];
+    return std::string();
 }
 
 bool from_hex_to_i(const std::string& s, size_t i, size_t cnt, int& val)
@@ -52,18 +62,6 @@ bool from_hex_to_i(const std::string& s, size_t i, size_t cnt, int& val)
         }
     }
     return true;
-}
-
-std::string from_i_to_hex(size_t n)
-{
-    const char* charset = "0123456789abcdef";
-    std::string ret;
-    do
-    {
-        ret = charset[n & 15] + ret;
-        n >>= 4;
-    } while (n > 0);
-    return ret;
 }
 
 bool parse_range(const std::string& s, std::optional<int64_t>& begin, std::optional<int64_t>& end)
@@ -106,7 +104,8 @@ size_t to_utf8(int code, char* buf)
         return 3;
     }
     else if (code < 0xE000)
-    { // D800 - DFFF is invalid...
+    {
+        // D800 - DFFF is invalid...
         return 0;
     }
     else if (code < 0x10000)
