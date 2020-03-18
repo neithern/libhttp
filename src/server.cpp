@@ -35,8 +35,7 @@ class _responser : public parser, public content_writer
     {
         reason_start_failed,
         reason_read_done,
-        reason_write_done,
-        reason_write_done2
+        reason_write_done
     };
 
 private:
@@ -268,9 +267,9 @@ protected:
         {
             printf("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
-            uv_read_stop(socket_);            
-            start_read(socket_);
-            return;
+            uv_read_stop(socket_);
+            if (start_read(socket_) == 0)
+                return;
         }
 #endif
         printf("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);

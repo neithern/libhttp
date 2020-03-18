@@ -50,8 +50,9 @@ private:
     content_provider content_provider_;
 
     bool headers_written_ = false;
+    int last_socket_error_ = 0;
     std::shared_ptr<write_req> writing_req_;
-    std::list<std::shared_ptr<write_req>> req_list;
+    std::list<std::shared_ptr<write_req>> req_list_;
 };
 
 } // namespace http

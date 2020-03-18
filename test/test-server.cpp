@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include "server.h"
 
 int main(int argc, const char* argv[])
 {
-    int port = 80;
+    int port = 8000;
     std::string path = "";
 
     if (argc > 1)
@@ -45,7 +46,8 @@ int main(int argc, const char* argv[])
     });
 
     bool ret = server.listen("0.0.0.0", port);
-    printf("Server listen on port %d: %s\n", port, ret ? "true" : "false");
+    printf("Server listen on port %d%s\n", port, ret ? "." : " failed!");
  
+    signal(SIGPIPE, SIG_IGN); // for linux
     return ret ? server.run_loop() : -1;
 }

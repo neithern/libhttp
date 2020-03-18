@@ -34,19 +34,19 @@ content_writer::content_writer(uv_loop_t* loop)
     content_sink_ = [this](const char* data, size_t size, content_done done)
     {
         auto req = std::make_shared<write_req>(data, size, done);
-        if (!headers_written_ || writing_req_)
+        if (!headers_written_ || writing_req_ || last_socket_error_ < 0)
         {
             // push to list tail, will be written in on_written_cb()
-            req_list.push_back(req);
+            req_list_.push_back(req);
             return;
         }
 
-        if (!req_list.empty())
+        if (!req_list_.empty())
         {
             // push to list tail, pop the front
-            req_list.push_back(req);
-            req = req_list.front();
-            req_list.pop_front();
+            req_list_.push_back(req);
+            req = req_list_.front();
+            req_list_.pop_front();
         }
 
         int r = (int)req->buf.len;
@@ -66,10 +66,11 @@ content_writer::content_writer(uv_loop_t* loop)
 
 content_writer::~content_writer()
 {
+    assert(!writing_req_);
     if (writing_req_)
         uv_req_set_data((uv_req_t*)writing_req_.get(), nullptr);
 
-    req_list.clear();
+    req_list_.clear();
 
     uv_stream_t* tcp = socket_;
     socket_ = nullptr;
@@ -83,6 +84,7 @@ content_writer::~content_writer()
 int content_writer::start_write(std::shared_ptr<write_req> headers, content_provider provider)
 {
     content_provider_ = provider;
+    req_list_.clear();
 
     assert(!writing_req_);
     writing_req_ = headers;
@@ -131,20 +133,20 @@ int content_writer::write_next()
     if (is_write_done())
         return 0;
 
-    if (req_list.empty())
+    if (req_list_.empty())
     {
         prepare_next();
         return 0;
     }
 
-    auto req = req_list.front();
-    req_list.pop_front();
+    auto req = req_list_.front();
+    req_list_.pop_front();
 
     int r = (int)req->buf.len;
     if (r >= 0)
         r = write_content(req);
 
-    if (r >= 0 && req_list.empty())
+    if (r >= 0 && req_list_.empty())
         prepare_next();
     return r;
 }
@@ -157,7 +159,7 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
 
     p_this->writing_req_.reset();
 
-    int r = status;
+    int r = p_this->last_socket_error_ = status;
     if (status >= 0)
     {
         r = p_this->write_next();
@@ -169,10 +171,7 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
     else
         printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(r));
 
-    if (r == UV_EOF)
-        p_this->set_write_done();
-
-    bool done = p_this->is_write_done();
+    bool done = p_this->is_write_done() && !p_this->writing_req_;
     if (r < 0 || done)
         p_this->on_write_end(done ? 0 : r);
 }
