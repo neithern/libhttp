@@ -97,7 +97,7 @@ protected:
         pstr->append("\r\n", 2);
 
         if (!headers.count(HEADER_USER_AGENT))
-            headers[HEADER_USER_AGENT] = "libhttp";
+            headers[HEADER_USER_AGENT] = LIBHTTP_TAG;
         if (!headers.count(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
 

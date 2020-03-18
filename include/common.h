@@ -21,8 +21,11 @@ static const std::string HEADER_CONTENT_TYPE        = "Content-Type";
 static const std::string HEADER_LOCATION            = "Location";
 static const std::string HEADER_RANGE               = "Range";
 static const std::string HEADER_REMOTE_ADDRESS      = "Remote-Address";
+static const std::string HEADER_SERVER              = "Server";
 static const std::string HEADER_TRANSFER_ENCODING   = "Transfer-Encoding";
 static const std::string HEADER_USER_AGENT          = "User-Agent";
+
+static const std::string LIBHTTP_TAG = "libhttp/0.1";
 
 struct string_case_hash : public std::hash<std::string>
 {

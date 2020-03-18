@@ -156,14 +156,7 @@ protected:
             request_.headers[HEADER_REMOTE_ADDRESS] = peer_address_;
             response_.status_code = 200;
             router_.on_router(request_, response_);
-            if (response_.is_ok())
-            {
-#ifdef _ENABLE_KEEP_ALIVE_
-                if (keep_alive_ && !response_.headers.count(HEADER_CONNECTION))
-                    response_.headers[HEADER_CONNECTION] = "Keep-Alive";
-#endif
-            }
-            else
+            if (!response_.provider)
                 response_.content_length = 0;
         }
         else
@@ -212,6 +205,12 @@ protected:
             if (!headers.count(HEADER_ACCEPT_RANGES))
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
+
+        response_.headers[HEADER_SERVER] = LIBHTTP_TAG;
+#ifdef _ENABLE_KEEP_ALIVE_
+        if (!response_.headers.count(HEADER_CONNECTION))
+            response_.headers[HEADER_CONNECTION] = keep_alive_ ? "Keep-Alive" : "Close";
+#endif
 
         if (response_.status_msg.empty())
         {
