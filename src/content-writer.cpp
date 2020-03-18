@@ -157,23 +157,25 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
     if (p_this == nullptr)
         return;
 
+    p_this->last_socket_error_ = status;
     p_this->writing_req_.reset();
 
-    int r = p_this->last_socket_error_ = status;
+    if (p_this->is_write_done())
+    {
+        p_this->on_write_end(status);
+        return;
+    }
+
     if (status >= 0)
     {
-        r = p_this->write_next();
-        if (r == UV_E_USER_CANCELLED)
-            p_this->set_write_done();
-        else if (r < 0)
-            printf("%p:%p write socket: %s\n", p_this, p_this->socket_, uv_err_name(r));
+        status = p_this->write_next();
+        if (status < 0)
+            printf("%p:%p write_socket: %s\n", p_this, p_this->socket_, uv_err_name(status));
     }
     else
-        printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(r));
-
-    bool done = p_this->is_write_done() && !p_this->writing_req_;
-    if (r < 0 || done)
-        p_this->on_write_end(done ? 0 : r);
+        printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(status));
+    if (status < 0)
+        p_this->on_write_end(status);
 }
 
 } // namespace http

@@ -135,16 +135,12 @@ protected:
 
     virtual void on_read_end(int error_code)
     {
-        if (error_code < 0 && socket_ != nullptr)
-            uv_read_stop(socket_);
+        uv_read_stop(socket_);
 
-        if (state_ != state_outputing)
-        {
-            if (error_code >= 0)
-                on_route();
-            else
-                on_end(error_code, reason_read_done);
-        }
+        if (state_ == state_parsed && error_code >= 0)
+            on_route();
+        else if (state_ != state_outputing)
+            on_end(error_code, reason_read_done);
     }
 
     void on_route()
@@ -267,14 +263,13 @@ protected:
         {
             printf("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
-            uv_read_stop(socket_);
             if (start_read(socket_) == 0)
                 return;
         }
 #endif
         printf("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
-        state_ = state_parsing;
+        state_ = state_none;
         assert(ref_count_ == 1);
         release();
     }
