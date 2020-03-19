@@ -48,6 +48,8 @@ int main(int argc, const char* argv[])
     bool ret = server.listen("0.0.0.0", port);
     printf("Server listen on port %d%s\n", port, ret ? "." : " failed!");
  
+#ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN); // for linux
+#endif
     return ret ? server.run_loop() : -1;
 }
