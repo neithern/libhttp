@@ -5,6 +5,7 @@
 #include "buffer-pool.h"
 #include "common.h"
 #include "content-writer.h"
+#include "file-map.h"
 #include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
@@ -326,20 +327,42 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
         return false;
     }
 
-    auto reader = std::make_shared<file_reader>(loop_, path, buffer_pool_);
-    if (reader->get_fd() < 0)
+    std::shared_ptr<file_map> fmap;
+    if (length <= INT32_MAX)
     {
-        res.status_code = 403;
-        return false;
+        long modified_time = fs_req.statbuf.st_mtim.tv_sec;
+        if (auto p = file_cache_.find(path); p != file_cache_.cend() && p->second->modified_time() == modified_time)
+            fmap = p->second;
+        else
+            file_cache_[path] = fmap = std::make_shared<file_map>(path, (size_t)length, modified_time);
     }
 
-    res.content_length = length;
-    res.provider = [=](int64_t offset, int64_t length, content_sink sink) {
-        size_t size = std::min(buffer_pool::buffer_size, (size_t)(length - offset));
-        int r = reader->request_chunk(offset, size, sink);
-        if (r < 0 && r != UV_EAGAIN)
-            sink(nullptr, r, nullptr);
-    };
+    if (fmap && fmap->ptr() != nullptr)
+    {
+        res.content_length = fmap->size();
+        res.provider = [fmap](int64_t offset, int64_t length, content_sink sink) {
+            size_t size = std::min(buffer_pool::buffer_size, (size_t)(length - offset));
+            int r = fmap->read_chunk(offset, size, sink);
+            if (r < 0 && r != UV_EAGAIN)
+                sink(nullptr, r, nullptr);
+        };
+    }
+    else
+    {
+        auto reader = std::make_shared<file_reader>(loop_, path, buffer_pool_);
+        if (reader->get_fd() < 0)
+        {
+            res.status_code = 403;
+            return false;
+        }
+        res.content_length = length;
+        res.provider = [reader](int64_t offset, int64_t length, content_sink sink) {
+            size_t size = std::min(buffer_pool::buffer_size, (size_t)(length - offset));
+            int r = reader->request_chunk(offset, size, sink);
+            if (r < 0 && r != UV_EAGAIN)
+                sink(nullptr, r, nullptr);
+        };
+    }
 
     std::string ext = file_extension(path);
     if (auto p = mime_types.find(ext); p != mime_types.cend())
