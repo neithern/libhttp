@@ -23,7 +23,7 @@ public:
     content_writer(uv_loop_t* loop);
     virtual ~content_writer();
 
-    int start_write(std::shared_ptr<write_req> headers, content_provider provider);
+    int start_write(std::shared_ptr<std::string> headers, content_provider provider);
 
 protected:
     virtual void on_write_end(int error_code) = 0;

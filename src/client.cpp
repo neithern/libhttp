@@ -86,15 +86,16 @@ protected:
     {
         string_map& headers = request_.headers;
 
-        std::string* pstr = new std::string();
-        pstr->reserve(4096);
+        auto pstr = std::make_shared<std::string>();
+        std::string& str = *pstr.get();
+        str.reserve(buffer_pool::buffer_size);
 
-        pstr->append(request_.method);
-        pstr->append(" ");
-        pstr->append(uri::encode(uri_.path));
-        pstr->append(" HTTP/1.1\r\nHost: ", 17);
-        pstr->append(uri_.host);
-        pstr->append("\r\n", 2);
+        str.append(request_.method);
+        str.append(" ");
+        str.append(uri::encode(uri_.path));
+        str.append(" HTTP/1.1\r\nHost: ", 17);
+        str.append(uri_.host);
+        str.append("\r\n", 2);
 
         if (!headers.count(HEADER_USER_AGENT))
             headers[HEADER_USER_AGENT] = LIBHTTP_TAG;
@@ -103,15 +104,13 @@ protected:
 
         for (auto& p : headers)
         {
-            pstr->append(p.first);
-            pstr->append(": ", 2);
-            pstr->append(p.second);
-            pstr->append("\r\n", 2);
+            str.append(p.first);
+            str.append(": ", 2);
+            str.append(p.second);
+            str.append("\r\n", 2);
         }
-        pstr->append("\r\n", 2);
-
-        auto req = std::make_shared<write_req>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
-        return content_writer::start_write(req, request_.provider);
+        str.append("\r\n", 2);
+        return content_writer::start_write(pstr, request_.provider);
     }
 
     virtual request_base* on_get_request()

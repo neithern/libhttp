@@ -81,13 +81,28 @@ content_writer::~content_writer()
     }
 }
 
-int content_writer::start_write(std::shared_ptr<write_req> headers, content_provider provider)
+int content_writer::start_write(std::shared_ptr<std::string> headers, content_provider provider)
 {
-    content_provider_ = provider;
+    assert(!writing_req_);
+    assert(req_list_.empty());
     req_list_.clear();
 
-    assert(!writing_req_);
-    writing_req_ = headers;
+    content_provider_ = provider;
+    headers_written_ = false;
+
+    if (provider && content_to_write_ <= buffer_pool::buffer_size)
+    {
+        // preload small content and combine to single buffer
+        provider(content_written_, content_to_write_, content_sink_);
+        for (const auto& req : req_list_)
+        {
+            headers->append(req->buf.base, req->buf.len);
+            content_written_ += req->buf.len;
+        }
+        req_list_.clear();
+    }
+
+    writing_req_ = std::make_shared<write_req>(headers->c_str(), headers->size(), [headers]() {});
     uv_req_set_data((uv_req_t*)writing_req_.get(), this);
 
     int r = uv_write(writing_req_.get(), socket_, &writing_req_->buf, 1, on_written_cb);
@@ -115,7 +130,6 @@ int content_writer::write_content(std::shared_ptr<write_req> req)
     int64_t max_write = content_to_write_ - content_written_;
     if (req->buf.len > max_write)
         req->buf.len = static_cast<decltype(req->buf.len)>(max_write);
-
     content_written_ += req->buf.len;
 
     assert(!writing_req_);
@@ -162,6 +176,7 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
 
     if (p_this->is_write_done())
     {
+        p_this->content_provider_ = nullptr;
         p_this->on_write_end(status);
         return;
     }
@@ -175,7 +190,10 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
     else
         printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(status));
     if (status < 0)
+    {
+        p_this->content_provider_ = nullptr;
         p_this->on_write_end(status);
+    }
 }
 
 } // namespace http

@@ -221,26 +221,26 @@ protected:
                 response_.status_msg = "Done";
         }
 
-        std::string* pstr = new std::string();
-        pstr->reserve(4096);
+        auto pstr = std::make_shared<std::string>();
+        std::string& str = *pstr.get();
+        str.reserve(buffer_pool::buffer_size);
 
-        pstr->append("HTTP/1.1 ", 9);
-        pstr->append(std::to_string(response_.status_code));
-        pstr->append(" ", 1);
-        pstr->append(response_.status_msg);
-        pstr->append(" \r\n", 3);
+        str.append("HTTP/1.1 ", 9);
+        str.append(std::to_string(response_.status_code));
+        str.append(" ", 1);
+        str.append(response_.status_msg);
+        str.append(" \r\n", 3);
         for (auto& p : headers)
         {
-            pstr->append(p.first);
-            pstr->append(": ", 2);
-            pstr->append(p.second);
-            pstr->append("\r\n", 2);
+            str.append(p.first);
+            str.append(": ", 2);
+            str.append(p.second);
+            str.append("\r\n", 2);
         }
-        pstr->append("\r\n", 2);
+        str.append("\r\n", 2);
 
         state_ = state_outputing;
-        auto req = std::make_shared<write_req>(pstr->c_str(), pstr->size(), [=]() { delete pstr; });
-        content_writer::start_write(req, response_.provider);
+        content_writer::start_write(pstr, response_.provider);
     }
 
     virtual void on_write_end(int error_code)
