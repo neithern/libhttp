@@ -33,6 +33,16 @@ int main(int argc, const char* argv[])
     server.serve("/push/.*", router);
 #endif
 
+#ifdef _TEST_HELLO_
+    server.serve("/hello", [&](const http::request2& req, http::response2& res) {
+        auto pstr = std::make_shared<std::string>("Hello World!");
+        res.content_length = pstr->size();
+        res.provider = [pstr](int64_t offset, int64_t length, http::content_sink sink) {
+            sink(pstr->c_str(), pstr->size(), [pstr]() {});
+        };
+    });
+#endif
+
     server.serve(".*", [&](const http::request2& req, http::response2& res) {
         printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
 
