@@ -150,6 +150,7 @@ protected:
         response_.status_msg.clear();
         response_.headers.clear();
         response_.content_length.reset();
+        response_.provider = nullptr;
         response_.releaser = nullptr;
 
         if (router_.on_router)
