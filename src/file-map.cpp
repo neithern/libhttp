@@ -63,7 +63,7 @@ file_map::~file_map()
 
 int file_map::read_chunk(int64_t offset, size_t size, content_sink sink)
 {
-    if (ptr_ != nullptr && offset < size_)
+    if (ptr_ != nullptr && offset < (int64_t)size_)
     {
         size_t max_size = size_ - offset;
         if (size > max_size)
