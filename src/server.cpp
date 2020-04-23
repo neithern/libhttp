@@ -153,11 +153,11 @@ protected:
         response_.provider = nullptr;
         response_.releaser = nullptr;
 
-        if (router_.on_router)
+        if (router_.on_route)
         {
             request_.headers[HEADER_REMOTE_ADDRESS] = peer_address_;
             response_.status_code = 200;
-            router_.on_router(request_, response_);
+            router_.on_route(request_, response_);
             if (!response_.provider)
                 response_.content_length = 0;
         }
@@ -302,10 +302,10 @@ bool server::listen(const std::string& address, int port)
     return r == 0;
 }
 
-void server::serve(const std::string& pattern, on_router on_router)
+void server::serve(const std::string& pattern, on_router on_route)
 {
     router router = {};
-    router.on_router = on_router;
+    router.on_route = on_route;
     serve(pattern, router);
 }
 

@@ -35,7 +35,7 @@ struct router
 {
     on_request_start on_start;
     on_request_data on_data;
-    on_router on_router;
+    on_router on_route;
 };
 
 class server
@@ -48,7 +48,7 @@ public:
     server(uv_loop_t* loop = nullptr);
     ~server();
 
-    void serve(const std::string& pattern, on_router on_router);
+    void serve(const std::string& pattern, on_router on_route);
     void serve(const std::string& pattern, router router);
 
     bool serve_file(const std::string& path, const request2& req, response2& res);
