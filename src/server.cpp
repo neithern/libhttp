@@ -112,7 +112,7 @@ protected:
         if (p != end)
             parse_range(p->second, request_.range_begin, request_.range_end);
 
-        size_t pos = request_.url.find_last_of('?');
+        size_t pos = request_.url.find('?');
         std::string path = pos == std::string::npos ? request_.url : request_.url.substr(0, pos);
 
         if (auto p = router_map_.find(path); p != router_map_.cend())
