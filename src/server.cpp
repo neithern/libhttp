@@ -112,13 +112,16 @@ protected:
         if (p != end)
             parse_range(p->second, request_.range_begin, request_.range_end);
 
-        if (auto p = router_map_.find(request_.url); p != router_map_.cend())
+        size_t pos = request_.url.find_last_of('?');
+        std::string path = pos == std::string::npos ? request_.url : request_.url.substr(0, pos);
+
+        if (auto p = router_map_.find(path); p != router_map_.cend())
         {
             router_ = p->second;
         }
         else for (auto& p : router_list_)
         {
-            if (std::regex_match(request_.url, p.first))
+            if (std::regex_match(path, p.first))
             {
                 router_ = p.second;
                 break;
