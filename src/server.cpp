@@ -115,15 +115,16 @@ protected:
         size_t pos = request_.url.find('?');
         std::string path = pos == std::string::npos ? request_.url : request_.url.substr(0, pos);
 
-        if (auto p = router_map_.find(path); p != router_map_.cend())
+        auto p2 = router_map_.find(path);
+        if (p2 != router_map_.cend())
         {
-            router_ = p->second;
+            router_ = p2->second;
         }
-        else for (auto& p : router_list_)
+        else for (auto& p3 : router_list_)
         {
-            if (std::regex_match(path, p.first))
+            if (std::regex_match(path, p3.first))
             {
-                router_ = p.second;
+                router_ = p3.second;
                 break;
             }
         }
@@ -219,7 +220,8 @@ protected:
 
         if (response_.status_msg.empty())
         {
-            if (auto p = server::status_messages.find(response_.status_code); p != server::status_messages.cend())
+            auto p = server::status_messages.find(response_.status_code);
+            if (p != server::status_messages.cend())
                 response_.status_msg = p->second;
             else
                 response_.status_msg = "Done";
@@ -314,9 +316,12 @@ void server::serve(const std::string& pattern, on_router on_route)
 
 void server::serve(const std::string& pattern, router router)
 {
-    auto p = router_map_.insert_or_assign(pattern, router);
-    if (p.second)
+    auto p = router_map_.find(pattern);
+    if (p == router_map_.cend())
+    {
+        router_map_.emplace(pattern, router);
         router_list_.push_back(std::make_pair(std::regex(pattern), router));
+    }
 }
 
 bool server::serve_file(const std::string& path, const request2& req, response2& res)
@@ -335,7 +340,8 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
     if (length <= INT32_MAX)
     {
         long modified_time = fs_req.statbuf.st_mtim.tv_sec;
-        if (auto p = file_cache_.find(path); p != file_cache_.cend() && p->second->modified_time() == modified_time)
+        auto p = file_cache_.find(path);
+        if (p != file_cache_.cend() && p->second->modified_time() == modified_time)
             fmap = p->second;
         else
             file_cache_[path] = fmap = std::make_shared<file_map>(path, (size_t)length, modified_time);
@@ -369,7 +375,8 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
     }
 
     std::string ext = file_extension(path);
-    if (auto p = mime_types.find(ext); p != mime_types.cend())
+    auto p = mime_types.find(ext);
+    if (p != mime_types.cend())
         res.headers[http::HEADER_CONTENT_TYPE] = p->second;
     return true;
 }
