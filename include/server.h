@@ -15,6 +15,7 @@ namespace http
 
 struct request2 : public request_base
 {
+    string_map queries;
     std::optional<int64_t> range_begin;
     std::optional<int64_t> range_end;
 

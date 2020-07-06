@@ -46,8 +46,7 @@ int main(int argc, const char* argv[])
     server.serve(".*", [&](const http::request2& req, http::response2& res) {
         printf("request: %s %s\n", req.method.c_str(), req.url.c_str());
 
-        size_t pos = req.url.find('?');
-        std::string path = pos == std::string::npos ? req.url : req.url.substr(0, pos);
+        std::string path = req.url;
         if (path.size() > 0 && path.back() == '/')
             path += "index.html";
         if (path.size() > 0 && path[0] == '/')

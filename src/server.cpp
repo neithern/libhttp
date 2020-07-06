@@ -112,17 +112,34 @@ protected:
         if (p != end)
             parse_range(p->second, request_.range_begin, request_.range_end);
 
-        size_t pos = request_.url.find('?');
-        std::string path = pos == std::string::npos ? request_.url : request_.url.substr(0, pos);
+        // split url and queries
+        request_.queries.clear();
+        auto pos = request_.url.find('?');
+        if (pos != std::string::npos)
+        {
+            std::string query = request_.url.substr(pos + 1);
+            request_.url = request_.url.substr(0, pos);
 
-        auto p2 = router_map_.find(path);
+            std::regex re("&");
+            std::vector<std::string> vec(std::sregex_token_iterator(query.begin(), query.end(), re, -1), std::sregex_token_iterator());
+            for (auto& s : vec)
+            {
+                auto pos2 = s.find('=');
+                if (pos2 != std::string::npos)
+                    request_.queries[s.substr(0, pos2)] = s.substr(pos2 + 1);
+                else
+                    request_.queries[s] = "";
+            }
+        }
+
+        auto p2 = router_map_.find(request_.url);
         if (p2 != router_map_.cend())
         {
             router_ = p2->second;
         }
         else for (auto& p3 : router_list_)
         {
-            if (std::regex_match(path, p3.first))
+            if (std::regex_match(request_.url, p3.first))
             {
                 router_ = p3.second;
                 break;
