@@ -10,6 +10,7 @@
 #include "parser.h"
 #include "reference-count.h"
 #include "server.h"
+#include "uri.h"
 #include "utils.h"
 
 #ifdef _MSC_VER
@@ -126,7 +127,7 @@ protected:
             {
                 auto pos2 = s.find('=');
                 if (pos2 != std::string::npos)
-                    request_.queries[s.substr(0, pos2)] = s.substr(pos2 + 1);
+                    request_.queries[s.substr(0, pos2)] = uri::decode(s.substr(pos2 + 1));
                 else
                     request_.queries[s] = "";
             }
