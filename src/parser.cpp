@@ -9,7 +9,7 @@
 namespace http
 {
 
-constexpr size_t _max_num_headers = 100;
+static const size_t _max_num_headers = 100;
 
 parser::parser(bool request_mode, std::shared_ptr<buffer_pool> buffer_pool)
 {

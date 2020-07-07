@@ -9,7 +9,7 @@ namespace http
 class buffer_pool
 {
 public:
-    static constexpr size_t buffer_size = 64 * 1024;
+    static size_t buffer_size;
 
     buffer_pool(size_t min_size = buffer_size);
     ~buffer_pool();

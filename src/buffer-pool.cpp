@@ -14,6 +14,8 @@ struct buffer
     struct buffer* next;
 };
 
+size_t buffer_pool::buffer_size = 64 * 1024;
+
 buffer_pool::buffer_pool(size_t min_size)
 {
     min_size_ = min_size;

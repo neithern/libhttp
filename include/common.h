@@ -70,8 +70,8 @@ struct string_case_equals : public std::equal_to<std::string>
             return false;
         auto p1 = reinterpret_cast<unsigned char const*>(lhs.data());
         auto p2 = reinterpret_cast<unsigned char const*>(rhs.data());
-        auto constexpr s = sizeof(std::uint32_t);
-        auto constexpr mask = static_cast<std::uint32_t>(0xDFDFDFDFDFDFDFDF & ~std::uint32_t{0});
+        auto s = sizeof(std::uint32_t);
+        auto mask = static_cast<std::uint32_t>(0xDFDFDFDFDFDFDFDF & ~std::uint32_t{0});
         for (; n >= s; p1 += s, p2 += s, n -= s)
         {
             std::uint32_t const v1 = string_case_hash::get_chars(p1);
