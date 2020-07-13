@@ -169,11 +169,7 @@ protected:
     void on_route()
     {
         // set default status
-        response_.status_msg.clear();
-        response_.headers.clear();
-        response_.content_length.reset();
-        response_.provider = nullptr;
-        response_.releaser = nullptr;
+        clear_response();
 
         if (router_.on_route)
         {
@@ -267,6 +263,15 @@ protected:
         content_writer::start_write(pstr, response_.provider);
     }
 
+    void clear_response()
+    {
+        response_.status_msg.clear();
+        response_.headers.clear();
+        response_.content_length.reset();
+        response_.provider = nullptr;
+        response_.releaser = nullptr;
+    }
+
     virtual void on_write_end(int error_code)
     {
         on_end(error_code, reason_write_done);
@@ -279,6 +284,7 @@ protected:
             response_.releaser();
             response_.releaser = nullptr;
         }
+        clear_response();
 
         if (error_code != 0)
             keep_alive_ = false;
