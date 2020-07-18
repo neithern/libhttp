@@ -51,7 +51,7 @@ protected:
     {
         close_socket();
 
-        printf("%d alive responsers\n", --_requester_count_);
+        printf("%d living requesters\n", --_requester_count_);
     }
 
     void close_socket()

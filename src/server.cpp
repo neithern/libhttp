@@ -78,7 +78,7 @@ protected:
 
     virtual ~_responser()
     {
-        printf("%d alive responsers\n", --_responser_count_);
+        printf("%d living responsers\n", --_responser_count_);
     }
 
     void start()
