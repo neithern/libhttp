@@ -10,6 +10,7 @@
 #include "parser.h"
 #include "reference-count.h"
 #include "server.h"
+#include "trace.h"
 #include "uri.h"
 #include "utils.h"
 
@@ -78,7 +79,7 @@ protected:
 
     virtual ~_responser()
     {
-        printf("%d living responsers\n", --_responser_count_);
+        trace("%d living responsers\n", --_responser_count_);
     }
 
     void start()
@@ -147,7 +148,7 @@ protected:
             }
         }
 
-        printf("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
+        trace("%p:%p begin: %s\n", this, socket_, request_.url.c_str());
         return !router_.on_start || router_.on_start(request_);
     }
 
@@ -291,13 +292,13 @@ protected:
 #ifdef _ENABLE_KEEP_ALIVE_
         if (keep_alive_)
         {
-            printf("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
+            trace("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
             if (start_read(socket_) == 0)
                 return;
         }
 #endif
-        printf("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
+        trace("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
         state_ = state_none;
         assert(ref_count_ == 1);
@@ -436,7 +437,7 @@ void server::on_connection_cb(uv_stream_t* socket, int status)
     if (status == 0)
         p_this->on_connection(socket);
     else
-        printf("accept error: %d\n", status);
+        trace("accept error: %d\n", status);
 }
 
 string_map server::mime_types =

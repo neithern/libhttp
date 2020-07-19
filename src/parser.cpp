@@ -5,6 +5,7 @@
 #include "chunked-decoder.h"
 #include "parser.h"
 #include "pico/picohttpparser.h"
+#include "trace.h"
 
 namespace http
 {
@@ -169,10 +170,10 @@ void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
         if (r == UV_E_USER_CANCELLED)
             p_this->set_read_done();
         else if (r < 0)
-            printf("%p:%p read socket: %s\n", p_this, socket, uv_err_name(r));
+            trace("%p:%p read socket: %s\n", p_this, socket, uv_err_name(r));
     }
     else if (nread < 0)
-        printf("%p:%p on_read_cb: %s\n", p_this, socket, uv_err_name(r));
+        trace("%p:%p on_read_cb: %s\n", p_this, socket, uv_err_name(r));
     p_this->buffer_pool_->recycle_buffer(const_cast<uv_buf_t&>(*buf));
 
     if (r == UV_EOF)

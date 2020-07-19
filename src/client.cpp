@@ -7,6 +7,7 @@
 #include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
+#include "trace.h"
 #include "uri.h"
 #include "utils.h"
 
@@ -51,7 +52,7 @@ protected:
     {
         close_socket();
 
-        printf("%d living requesters\n", --_requester_count_);
+        trace("%d living requesters\n", --_requester_count_);
     }
 
     void close_socket()
@@ -62,7 +63,7 @@ protected:
         {
             uv_handle_set_data((uv_handle_t*)tcp, nullptr);
             uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-            // printf("%p:%p socket closed\n", this, tcp);
+            // trace("%p:%p socket closed\n", this, tcp);
         }
     }
 
@@ -201,7 +202,7 @@ protected:
     {
         if (error_code < 0 && error_code != UV_E_USER_CANCELLED)
         {
-            printf("%p:%p end: %s, %s, %d\n", this, socket_, uv_err_name(error_code), request_.url.c_str(), ref_count_);
+            trace("%p:%p end: %s, %s, %d\n", this, socket_, uv_err_name(error_code), request_.url.c_str(), ref_count_);
             if (on_error_)
                 on_error_(error_code);
         }

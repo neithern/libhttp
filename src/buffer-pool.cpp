@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <uv.h>
 #include "buffer-pool.h"
+#include "trace.h"
 
 namespace http
 {
@@ -29,7 +30,7 @@ buffer_pool::~buffer_pool()
 {
     clear();
 #ifdef _ENABLE_CACHE_
-    printf("buffer pool status: alloc %zu, hit %zu\n", alloc_count_, hit_count_);
+    trace("buffer pool status: alloc %zu, hit %zu\n", alloc_count_, hit_count_);
 #endif
 }
 

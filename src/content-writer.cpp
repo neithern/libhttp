@@ -7,6 +7,7 @@
 #include "common.h"
 #include "content-writer.h"
 #include "parser.h"
+#include "trace.h"
 
 namespace http
 {
@@ -55,7 +56,7 @@ content_writer::content_writer(uv_loop_t* loop)
         if (r < 0)
         {
             // to stop write
-            printf("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
+            trace("%p:%p stop: %s\n", this, socket_, uv_err_name(r));
             if (writing_req_)
                 on_written_cb(writing_req_.get(), r);
             else
@@ -185,10 +186,10 @@ void content_writer::on_written_cb(uv_write_t* req, int status)
     {
         status = p_this->write_next();
         if (status < 0)
-            printf("%p:%p write_socket: %s\n", p_this, p_this->socket_, uv_err_name(status));
+            trace("%p:%p write_socket: %s\n", p_this, p_this->socket_, uv_err_name(status));
     }
     else
-        printf("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(status));
+        trace("%p:%p on_written_cb: %s\n", p_this, p_this->socket_, uv_err_name(status));
     if (status < 0)
     {
         p_this->content_provider_ = nullptr;

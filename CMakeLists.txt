@@ -18,11 +18,11 @@ target_include_directories(http_a PUBLIC include libuv/include)
 target_link_libraries(http_a uv_a)
 
 add_executable(client
-    test/test-client.cpp
+    example/test-client.cpp
 )
 target_link_libraries(client http_a)
 
 add_executable(server
-    test/test-server.cpp
+    example/test-server.cpp
 )
 target_link_libraries(server http_a)
