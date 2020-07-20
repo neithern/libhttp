@@ -10,7 +10,7 @@ namespace http
 class file_map : public std::enable_shared_from_this<file_map>
 {
 public:
-    file_map(const std::string& path, size_t length, long modified_time);
+    file_map(const std::string& path, size_t length = 0, long modified_time = 0);
     ~file_map();
 
     inline const char* ptr() const { return ptr_; }

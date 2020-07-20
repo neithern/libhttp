@@ -8,6 +8,7 @@
 #else
 #include <unistd.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #endif
 
 namespace http
@@ -16,8 +17,8 @@ namespace http
 file_map::file_map(const std::string& path, size_t length, long modified_time)
 {
     const char* psz = path.c_str();
-    size_ = length;
     modified_time_ = modified_time;
+    size_ = 0;
     ptr_ = nullptr;
 
 #ifdef _WIN32
@@ -27,6 +28,8 @@ file_map::file_map(const std::string& path, size_t length, long modified_time)
     HANDLE h_file = ::CreateFileW(pwsz, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h_file != INVALID_HANDLE_VALUE)
     {
+        if (length == 0)
+            length = ::GetFileSize(h_file, NULL);
         DWORD high = (DWORD)(length >> 32);
         DWORD low = (DWORD)length;
         HANDLE h_map = ::CreateFileMapping(h_file, NULL, PAGE_READONLY, high, low, NULL);
@@ -42,12 +45,19 @@ file_map::file_map(const std::string& path, size_t length, long modified_time)
     int fd = ::open(psz, O_RDONLY);
     if (fd != -1)
     {
-        ptr_ = (char*)::mmap(NULL, size_, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (length == 0)
+        {
+            struct stat st;
+            if (::fstat(fd, &st) == 0)
+                length = st.st_size;
+        }
+        ptr_ = (char*)::mmap(NULL, length, PROT_READ, MAP_PRIVATE, fd, 0);
         if (ptr_ == (char*)-1LL)
             ptr_ = nullptr;
         ::close(fd);
     }
 #endif
+    size_ = length;
 }
 
 file_map::~file_map()
