@@ -1,5 +1,5 @@
-#ifndef _file_reader_h_
-#define _file_reader_h_
+#ifndef _http_timer_h_
+#define _http_timer_h_
 
 #include <functional>
 
