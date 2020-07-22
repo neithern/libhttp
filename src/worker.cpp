@@ -38,6 +38,7 @@ void worker::after_worker_cb(uv_work_t* req, int status)
     work_req* p_req = (work_req*)req;
     if (p_req->after_work)
         p_req->after_work(status);
+    delete p_req;
 }
 
 } // namespace http
