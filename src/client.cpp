@@ -202,7 +202,7 @@ protected:
 
     void on_end(int error_code)
     {
-        if (error_code < 0 && error_code != UV_E_USER_CANCELLED)
+        if (error_code < 0/* && error_code != UV_E_USER_CANCELLED*/)
         {
             trace("%p:%p end: %s, %s, %d\n", this, socket_, uv_err_name(error_code), request_.url.c_str(), ref_count_);
             if (on_error_)
