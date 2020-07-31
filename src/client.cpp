@@ -196,6 +196,8 @@ protected:
     {
         if (error_code == 0)
             start_read(socket_);
+        else if (error_code < 0)
+            on_end(error_code);
     }
 
     void on_end(int error_code)
