@@ -9,7 +9,7 @@ int main(int argc, const char* argv[])
     std::string path = "";
 
     if (argc > 1)
-        port = std::stoi(argv[1]);
+        port = strtol(argv[1], nullptr, 10);
     if (argc > 2)
         path = argv[2];
 
