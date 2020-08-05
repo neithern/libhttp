@@ -56,6 +56,8 @@ public:
 
     bool listen(const std::string& address, int port);
 
+    bool remove_cache(const std::string& path);
+
     int run_loop();
     void stop_loop();
 

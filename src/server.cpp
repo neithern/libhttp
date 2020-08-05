@@ -332,6 +332,11 @@ bool server::listen(const std::string& address, int port)
     return r == 0;
 }
 
+bool server::remove_cache(const std::string& path)
+{
+    return file_cache_.erase(path) != 0;
+}
+
 void server::serve(const std::string& pattern, on_router on_route)
 {
     router router = {};
