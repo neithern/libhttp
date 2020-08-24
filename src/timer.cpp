@@ -22,7 +22,11 @@ timer::~timer()
 {
     if (started_)
         uv_timer_stop(timer_);
-    delete timer_;
+
+    if (timer_)
+        uv_close((uv_handle_t*)timer_, [](uv_handle_t* handle) {
+            delete (uv_timer_t*)handle;
+        });
 }
 
 bool timer::start(uint64_t timeout, uint64_t repeat)
