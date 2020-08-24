@@ -34,8 +34,8 @@ bool timer::start(uint64_t timeout, uint64_t repeat)
 
 bool timer::stop()
 {
-    if (started_)
-        started_ = uv_timer_stop(timer_) == 0;
+    if (started_ && uv_timer_stop(timer_) == 0)
+        started_ = false;
     return !started_;
 }
 
