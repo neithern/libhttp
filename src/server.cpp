@@ -43,7 +43,7 @@ class _responser : public parser, public content_writer
 
 private:
     const std::unordered_map<std::string, router>& router_map_;
-    const std::vector<std::pair<std::regex, router>> router_list_;
+    const std::list<std::pair<std::regex, router>> router_list_;
 
     // for input
     request2 request_;
@@ -57,7 +57,7 @@ private:
 
 protected:
     _responser(uv_loop_t* loop, uv_stream_t* socket, std::shared_ptr<buffer_pool> buffer_pool,
-            const std::unordered_map<std::string, router>& router_map, const std::vector<std::pair<std::regex, router>>& router_list) :
+            const std::unordered_map<std::string, router>& router_map, const std::list<std::pair<std::regex, router>>& router_list) :
         parser(true, buffer_pool), router_map_(router_map), router_list_(router_list),
         content_writer(loop)
     {
@@ -306,11 +306,12 @@ protected:
     }
 };
 
-server::server(uv_loop_t* loop)
+server::server(bool default_loop)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
-    loop_ = loop != nullptr ? loop : uv_default_loop();
+    loop_ = default_loop ? uv_default_loop() : uv_loop_new();
     socket_ = nullptr;
+    server_thread_ = uv_thread_self();
 }
 
 server::~server()
@@ -319,6 +320,12 @@ server::~server()
         uv_close((uv_handle_t*)socket_, [](uv_handle_t* handle) {
             delete handle;
         });
+
+    if (loop_ != nullptr && loop_ != uv_default_loop())
+    {
+        uv_loop_close(loop_);
+        uv_loop_delete(loop_);
+    }
 }
 
 bool server::listen(const std::string& address, int port)
@@ -335,11 +342,6 @@ bool server::listen(const std::string& address, int port)
     uv_handle_set_data((uv_handle_t*)socket_, this);
     int r = uv_listen(socket_, 128, on_connection_cb);
     return r == 0;
-}
-
-bool server::remove_cache(const std::string& path)
-{
-    return file_cache_.erase(path) != 0;
 }
 
 void server::serve(const std::string& pattern, on_router on_route)
@@ -448,6 +450,52 @@ void server::on_connection_cb(uv_stream_t* socket, int status)
         p_this->on_connection(socket);
     else
         trace("accept error: %d\n", status);
+}
+
+bool server::remove_cache(const std::string& path)
+{
+    if (uv_thread_self() == server_thread_)
+        return file_cache_.erase(path) != 0;
+
+    {
+        std::lock_guard lock(list_mutex_);
+        to_remove_list_.push_back(path);
+    }
+
+    uv_async_t* async = new uv_async_t{};
+    uv_async_init(loop_, async, on_async_cb);
+    uv_handle_set_data((uv_handle_t*)async, this);
+    int r = uv_async_send(async);
+    if (r != 0)
+        delete async;
+    return r == 0;
+}
+
+void server::on_async()
+{
+    size_t count = 0;
+    do
+    {
+        std::string path;
+        {
+            std::lock_guard lock(list_mutex_);
+            count = to_remove_list_.size();
+            if (count > 0)
+            {
+                path = to_remove_list_.front();
+                to_remove_list_.pop_front();
+            }
+        }
+        if (path.size())
+            file_cache_.erase(path);
+    } while (count > 0);
+}
+
+void server::on_async_cb(uv_async_t* handle)
+{
+    server* p_this = (server*)uv_handle_get_data((uv_handle_t*)handle);
+    uv_close((uv_handle_t*)handle, parser::on_closed_and_delete_cb);
+    p_this->on_async();
 }
 
 string_map server::mime_types =

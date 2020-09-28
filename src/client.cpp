@@ -340,10 +340,20 @@ protected:
     }
 };
 
-client::client(uv_loop_t* loop)
+client::client(bool default_loop)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
-    loop_ = loop != nullptr ? loop : uv_default_loop();
+    loop_ = default_loop ? uv_default_loop() : uv_loop_new();
+    client_thread_ = uv_thread_self();
+}
+
+client::~client()
+{
+    if (loop_ != nullptr && loop_ != uv_default_loop())
+    {
+        uv_loop_close(loop_);
+        uv_loop_delete(loop_);
+    }
 }
 
 void client::fetch(const request& request,
@@ -374,7 +384,14 @@ void client::fetch(const request& request,
     requester->on_content_ = std::move(on_content);
     requester->on_redirect_ = std::move(on_redirect);
     requester->on_error_ = std::move(on_error);
-    requester->resolve();
+
+    if (uv_thread_self() == client_thread_)
+        requester->resolve();
+    else
+    {
+        std::lock_guard lock(list_mutex_);
+        requester_list_.push_back(requester);
+    }
 }
 
 void client::fetch(const request& request,
@@ -456,6 +473,33 @@ void client::pull(const std::string& path,
 int client::run_loop()
 {
     return uv_run(loop_, UV_RUN_DEFAULT);
+}
+
+void client::on_async()
+{
+    size_t count = 0;
+    do
+    {
+        _requester* requester = nullptr;
+        {
+            std::lock_guard lock(list_mutex_);
+            count = requester_list_.size();
+            if (count > 0)
+            {
+                requester = requester_list_.front();
+                requester_list_.pop_front();
+            }
+        }
+        if (requester != nullptr)
+            requester->resolve();
+    } while (count > 0);
+}
+
+void client::on_async_cb(uv_async_t* handle)
+{
+    client* p_this = (client*)uv_handle_get_data((uv_handle_t*)handle);
+    uv_close((uv_handle_t*)handle, parser::on_closed_and_delete_cb);
+    p_this->on_async();
 }
 
 } // namespace http
