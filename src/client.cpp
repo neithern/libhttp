@@ -391,6 +391,17 @@ void client::fetch(const request& request,
     {
         std::lock_guard lock(list_mutex_);
         requester_list_.push_back(requester);
+
+        uv_async_t* async = new uv_async_t{};
+        uv_async_init(loop_, async, on_async_cb);
+        uv_handle_set_data((uv_handle_t*)async, this);
+        int r = uv_async_send(async);
+        if (r == 0)
+            return;
+
+        delete async;
+        if (on_error)
+            on_error(r);
     }
 }
 
@@ -472,6 +483,7 @@ void client::pull(const std::string& path,
 
 int client::run_loop()
 {
+    client_thread_ = uv_thread_self();
     return uv_run(loop_, UV_RUN_DEFAULT);
 }
 

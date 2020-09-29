@@ -420,6 +420,7 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
 
 int server::run_loop()
 {
+    server_thread_ = uv_thread_self();
     return uv_run(loop_, UV_RUN_DEFAULT);
 }
 
