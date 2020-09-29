@@ -459,7 +459,7 @@ bool server::remove_cache(const std::string& path)
         return file_cache_.erase(path) != 0;
 
     {
-        std::lock_guard lock(list_mutex_);
+        std::lock_guard<std::mutex> lock(list_mutex_);
         to_remove_list_.push_back(path);
     }
 
@@ -479,7 +479,7 @@ void server::on_async()
     {
         std::string path;
         {
-            std::lock_guard lock(list_mutex_);
+            std::lock_guard<std::mutex> lock(list_mutex_);
             count = to_remove_list_.size();
             if (count > 0)
             {

@@ -389,7 +389,7 @@ void client::fetch(const request& request,
         requester->resolve();
     else
     {
-        std::lock_guard lock(list_mutex_);
+        std::lock_guard<std::mutex> lock(list_mutex_);
         requester_list_.push_back(requester);
 
         uv_async_t* async = new uv_async_t{};
@@ -494,7 +494,7 @@ void client::on_async()
     {
         _requester* requester = nullptr;
         {
-            std::lock_guard lock(list_mutex_);
+            std::lock_guard<std::mutex> lock(list_mutex_);
             count = requester_list_.size();
             if (count > 0)
             {
