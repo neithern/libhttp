@@ -311,7 +311,7 @@ server::server(bool default_loop)
     buffer_pool_ = std::make_shared<buffer_pool>();
     loop_ = default_loop ? uv_default_loop() : uv_loop_new();
     socket_ = nullptr;
-    server_thread_ = uv_thread_self();
+    server_thread_ = (void*)uv_thread_self();
 }
 
 server::~server()
@@ -420,7 +420,7 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
 
 int server::run_loop()
 {
-    server_thread_ = uv_thread_self();
+    server_thread_ = (void*)uv_thread_self();
     return uv_run(loop_, UV_RUN_DEFAULT);
 }
 
@@ -455,7 +455,7 @@ void server::on_connection_cb(uv_stream_t* socket, int status)
 
 bool server::remove_cache(const std::string& path)
 {
-    if (uv_thread_self() == server_thread_)
+    if ((void*)uv_thread_self() == server_thread_)
         return file_cache_.erase(path) != 0;
 
     {

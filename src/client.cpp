@@ -344,7 +344,7 @@ client::client(bool default_loop)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
     loop_ = default_loop ? uv_default_loop() : uv_loop_new();
-    client_thread_ = uv_thread_self();
+    client_thread_ = (void*)uv_thread_self();
 }
 
 client::~client()
@@ -385,7 +385,7 @@ void client::fetch(const request& request,
     requester->on_redirect_ = std::move(on_redirect);
     requester->on_error_ = std::move(on_error);
 
-    if (uv_thread_self() == client_thread_)
+    if ((void*)uv_thread_self() == client_thread_)
         requester->resolve();
     else
     {
@@ -483,7 +483,7 @@ void client::pull(const std::string& path,
 
 int client::run_loop()
 {
-    client_thread_ = uv_thread_self();
+    client_thread_ = (void*)uv_thread_self();
     return uv_run(loop_, UV_RUN_DEFAULT);
 }
 
