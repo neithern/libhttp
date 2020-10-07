@@ -12,7 +12,7 @@ namespace http
 class timer
 {
 public:
-    timer(std::function<void()> callback, uv_loop_t* loop = nullptr);
+    timer(std::function<void()>&& callback, uv_loop_t* loop = nullptr);
     ~timer();
 
     bool start(uint64_t timeout, uint64_t repeat = 0);

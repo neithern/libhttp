@@ -52,7 +52,7 @@ public:
     server(bool default_loop = true);
     ~server();
 
-    void serve(const std::string& pattern, on_router on_route);
+    void serve(const std::string& pattern, on_router&& on_route);
     void serve(const std::string& pattern, router router);
 
     bool serve_file(const std::string& path, const request2& req, response2& res);

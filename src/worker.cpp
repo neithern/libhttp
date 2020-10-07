@@ -17,7 +17,7 @@ worker::worker(uv_loop_t* loop)
     loop_ = loop != nullptr ? loop : uv_default_loop();
 }
 
-bool worker::queue(std::function<void()> work, std::function<void(int)> after_work)
+bool worker::queue(std::function<void()>&& work, std::function<void(int)>&& after_work)
 {
     work_req* req = new work_req{};
     req->work = std::move(work);
@@ -31,6 +31,7 @@ void worker::worker_cb(uv_work_t* req)
     work_req* p_req = (work_req*)req;
     if (p_req->work)
         p_req->work();
+    p_req->work = nullptr;
 }
 
 void worker::after_worker_cb(uv_work_t* req, int status)
@@ -38,6 +39,7 @@ void worker::after_worker_cb(uv_work_t* req, int status)
     work_req* p_req = (work_req*)req;
     if (p_req->after_work)
         p_req->after_work(status);
+    p_req->after_work = nullptr;
     delete p_req;
 }
 

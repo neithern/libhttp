@@ -344,10 +344,10 @@ bool server::listen(const std::string& address, int port)
     return r == 0;
 }
 
-void server::serve(const std::string& pattern, on_router on_route)
+void server::serve(const std::string& pattern, on_router&& on_route)
 {
     router router = {};
-    router.on_route = on_route;
+    router.on_route = std::move(on_route);
     serve(pattern, router);
 }
 

@@ -14,7 +14,7 @@ class worker
 public:
     worker(uv_loop_t* loop = nullptr);
 
-    bool queue(std::function<void()> work, std::function<void(int)> after_work = nullptr);
+    bool queue(std::function<void()>&& work, std::function<void(int)>&& after_work = nullptr);
 
 private:
     static void worker_cb(uv_work_t* req);

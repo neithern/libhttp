@@ -6,9 +6,9 @@
 namespace http
 {
 
-timer::timer(std::function<void()> callback, uv_loop_t* loop)
+timer::timer(std::function<void()>&& callback, uv_loop_t* loop)
 {
-    callback_ = callback;
+    callback_ = std::move(callback);
     started_ = false;
     timer_ = new uv_timer_t{};
     uv_handle_set_data((uv_handle_t*)timer_, this);
@@ -51,7 +51,8 @@ bool timer::stop()
 void timer::timer_cb(uv_timer_t* handle)
 {
     timer* p_this = (timer*)uv_handle_get_data((uv_handle_t*)handle);
-    p_this->callback_();
+    if (p_this->callback_)
+        p_this->callback_();
 }
 
 } // namespace http

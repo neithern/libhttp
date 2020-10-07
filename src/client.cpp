@@ -357,10 +357,10 @@ client::~client()
 }
 
 void client::fetch(const request& request,
-                on_response on_response,
-                on_content on_content,
-                on_redirect on_redirect,
-                on_error on_error)
+                on_response&& on_response,
+                on_content&& on_content,
+                on_redirect&& on_redirect,
+                on_error&& on_error)
 {
     _requester* requester = new _requester(loop_, buffer_pool_);
     if (requester == nullptr)
@@ -406,9 +406,9 @@ void client::fetch(const request& request,
 }
 
 void client::fetch(const request& request,
-                on_content_body on_body,
-                on_response on_response,
-                on_redirect on_redirect)
+                on_content_body&& on_body,
+                on_response&& on_response,
+                on_redirect&& on_redirect)
 {
     std::string* p_body = new std::string();
     if (p_body == nullptr)
@@ -422,7 +422,7 @@ void client::fetch(const request& request,
         delete p_body;
     };
 
-    fetch(request, on_response ? on_response :
+    fetch(request, on_response ? std::move(on_response) :
         [=](const response& res) {
             p_body->reserve((size_t)res.content_length.value_or(4096));
             return res.is_ok();
@@ -433,14 +433,14 @@ void client::fetch(const request& request,
                 on_end(0);
             return true;
         },
-        on_redirect,
-        on_end
+        std::move(on_redirect),
+        std::move(on_end)
     );
 }
 
 void client::pull(const std::string& path,
-                on_content on_content,
-                on_error on_error)
+                on_content&& on_content,
+                on_error&& on_error)
 {
     uv_fs_t fs_req{};
     int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
