@@ -9,20 +9,7 @@ typedef struct uv_work_s uv_work_t;
 namespace http
 {
 
-class worker
-{
-public:
-    worker(uv_loop_t* loop = nullptr);
-
-    bool queue(std::function<int()>&& work, std::function<void(int)>&& done = nullptr);
-
-private:
-    static void worker_cb(uv_work_t* req);
-    static void after_worker_cb(uv_work_t* req, int status);
-
-private:
-    uv_loop_t* loop_;
-};
+bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&& done = nullptr, uv_loop_t* loop = nullptr);
 
 }
 
