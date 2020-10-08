@@ -472,6 +472,28 @@ bool server::remove_cache(const std::string& path)
     return r == 0;
 }
 
+void server::remove_cache(const std::vector<std::string>& paths)
+{
+    if ((void*)uv_thread_self() == server_thread_)
+    {
+        for (const auto& path : paths)
+            file_cache_.erase(path);
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(list_mutex_);
+        to_remove_list_.insert(to_remove_list_.cend(), paths.cbegin(), paths.cend());
+    }
+
+    uv_async_t* async = new uv_async_t{};
+    uv_async_init(loop_, async, on_async_cb);
+    uv_handle_set_data((uv_handle_t*)async, this);
+    int r = uv_async_send(async);
+    if (r != 0)
+        delete async;
+}
+
 void server::on_async()
 {
     size_t count = 0;

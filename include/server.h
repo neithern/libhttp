@@ -61,6 +61,7 @@ public:
 
     // can call in other threads
     bool remove_cache(const std::string& path);
+    void remove_cache(const std::vector<std::string>& paths);
 
     inline uv_loop_t* get_loop() const { return loop_; }
 
