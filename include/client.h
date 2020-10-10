@@ -44,7 +44,7 @@ public:
 
     inline uv_loop_t* get_loop() const { return loop_; }
 
-    int run_loop();
+    int run_loop(bool once = false, bool nowait = false);
 
 private:
     void on_async();

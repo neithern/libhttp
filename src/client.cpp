@@ -481,10 +481,13 @@ void client::pull(const std::string& path,
     puller->start();
 }
 
-int client::run_loop()
+int client::run_loop(bool once, bool nowait)
 {
     client_thread_ = (void*)uv_thread_self();
-    return uv_run(loop_, UV_RUN_DEFAULT);
+    uv_run_mode mode = UV_RUN_DEFAULT;
+    if (once)
+        mode = nowait ? UV_RUN_NOWAIT : UV_RUN_ONCE;
+    return uv_run(loop_, mode);
 }
 
 void client::on_async()
