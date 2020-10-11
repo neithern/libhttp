@@ -348,10 +348,7 @@ client::client(bool default_loop)
 client::~client()
 {
     if (loop_ != nullptr && loop_ != uv_default_loop())
-    {
-        uv_loop_close(loop_);
         uv_loop_delete(loop_);
-    }
 }
 
 void client::fetch(const request& request,

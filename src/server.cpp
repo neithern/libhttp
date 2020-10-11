@@ -322,10 +322,7 @@ server::~server()
         });
 
     if (loop_ != nullptr && loop_ != uv_default_loop())
-    {
-        uv_loop_close(loop_);
         uv_loop_delete(loop_);
-    }
 }
 
 bool server::listen(const std::string& address, int port)
