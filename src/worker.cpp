@@ -6,7 +6,7 @@
 namespace http
 {
 
-struct work_req : public uv_work_t
+struct work_req_data
 {
     std::function<intptr_t()> work;
     std::function<void(intptr_t)> done;
@@ -15,23 +15,24 @@ struct work_req : public uv_work_t
 
 static void worker_cb(uv_work_t* req)
 {
-    auto p_req = (work_req*)req;
-    if (p_req->work)
+    auto p_data = (work_req_data*)uv_req_get_data((uv_req_t*)req);
+    if (p_data->work)
     {
-        p_req->result = p_req->work();
-        p_req->work = nullptr;
+        p_data->result = p_data->work();
+        p_data->work = nullptr;
     }
 }
 
 static void after_worker_cb(uv_work_t* req, int status)
 {
-    auto p_req = (work_req*)req;
-    if (p_req->done)
+    auto p_data = (work_req_data*)uv_req_get_data((uv_req_t*)req);
+    if (p_data->done)
     {
-        p_req->done(p_req->result);
-        p_req->done = nullptr;
+        p_data->done(p_data->result);
+        p_data->done = nullptr;
     }
-    delete p_req;
+    delete p_data;
+    delete req;
 }
 
 bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&& done, uv_loop_t* loop)
@@ -39,10 +40,11 @@ bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&
     if (loop == nullptr)
         loop = uv_default_loop();
 
-    auto req = new work_req{};
-    req->work = std::move(work);
-    req->done = std::move(done);
-    uv_handle_set_data((uv_handle_t*)req, req);
+    auto req = new uv_work_t{};
+    auto p_data = new work_req_data{};
+    p_data->work = std::move(work);
+    p_data->done = std::move(done);
+    uv_req_set_data((uv_req_t*)req, p_data);
     return uv_queue_work(loop, req, worker_cb, after_worker_cb) == 0;
 }
 
