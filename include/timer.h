@@ -15,6 +15,8 @@ public:
     timer(std::function<void()>&& callback, uv_loop_t* loop = nullptr);
     ~timer();
 
+    inline bool is_started() const { return started_; }
+
     bool start(uint64_t timeout, uint64_t repeat = 0);
     bool stop();
 
