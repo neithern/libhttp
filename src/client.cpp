@@ -23,8 +23,6 @@ class _requester : public parser, public content_writer
     friend class client;
 
 protected:
-    uv_loop_t* loop_;
-
     // for request
     uri uri_;
     request request_;
@@ -378,7 +376,6 @@ void client::fetch(const request& request,
         return;
     }
 
-    requester->loop_ = loop_;
     requester->request_ = request;
     requester->on_response_ = std::move(on_response);
     requester->on_content_ = std::move(on_content);

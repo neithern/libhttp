@@ -28,7 +28,7 @@ content_writer::write_req::~write_req()
 content_writer::content_writer(uv_loop_t* loop)
 {
     loop_ = loop;
-
+    socket_ = nullptr;
     content_written_ = 0;
     content_to_write_ = 0;
 

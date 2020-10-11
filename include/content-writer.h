@@ -42,10 +42,9 @@ protected:
     int64_t content_written_;
     int64_t content_to_write_;
     uv_stream_t* socket_;
-
-private:
     uv_loop_t* loop_;
 
+private:
     content_sink content_sink_;
     content_provider content_provider_;
 
