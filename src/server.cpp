@@ -227,7 +227,9 @@ protected:
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
 
-        response_.headers[HEADER_SERVER] = LIBHTTP_TAG;
+        // emplace server info if not set
+        response_.headers.emplace(HEADER_SERVER, LIBHTTP_TAG);
+
 #ifdef _ENABLE_KEEP_ALIVE_
         if (!response_.headers.count(HEADER_CONNECTION))
             response_.headers[HEADER_CONNECTION] = keep_alive_ ? "Keep-Alive" : "Close";
