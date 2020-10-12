@@ -4,12 +4,8 @@
 #include <stdlib.h>
 #include <functional>
 #include <memory>
-#include <mutex>
-#include <list>
 #include "common.h"
-
-typedef struct uv_async_s uv_async_t;
-typedef struct uv_loop_s uv_loop_t;
+#include "loop.h"
 
 namespace http
 {
@@ -20,11 +16,10 @@ using on_content_body = std::function<void(const std::string& body, int error)>;
 using on_redirect = std::function<bool(std::string& url)>;
 using on_error = std::function<void(int code)>;
 
-class client
+class client : public loop
 {
 public:
-    client(bool default_loop = true);
-    ~client();
+    client(bool use_default = true);
 
     void fetch(const request& request,
                 on_response&& on_response,
@@ -42,20 +37,8 @@ public:
                 on_content&& on_content,
                 on_error&& on_error = nullptr);
 
-    inline uv_loop_t* get_loop() const { return loop_; }
-
-    int run_loop(bool once = false, bool nowait = false);
-
 private:
-    void on_async();
-    static void on_async_cb(uv_async_t* handle);
-
-private:
-    uv_loop_t* loop_;
-    void* client_thread_;
     std::shared_ptr<class buffer_pool> buffer_pool_;
-    std::mutex list_mutex_;
-    std::list<class _requester*> requester_list_;
 };
 
 } // namespace http

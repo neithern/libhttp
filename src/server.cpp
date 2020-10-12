@@ -308,23 +308,16 @@ protected:
     }
 };
 
-server::server(bool default_loop)
+server::server(bool use_default) : loop(use_default)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
-    loop_ = default_loop ? uv_default_loop() : uv_loop_new();
     socket_ = nullptr;
-    server_thread_ = (void*)uv_thread_self();
 }
 
 server::~server()
 {
     if (socket_ != nullptr)
-        uv_close((uv_handle_t*)socket_, [](uv_handle_t* handle) {
-            delete handle;
-        });
-
-    if (loop_ != nullptr && loop_ != uv_default_loop())
-        uv_loop_delete(loop_);
+        uv_close((uv_handle_t*)socket_, on_closed_and_delete_cb);
 }
 
 bool server::listen(const std::string& address, int port)
@@ -417,17 +410,6 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
     return true;
 }
 
-int server::run_loop()
-{
-    server_thread_ = (void*)uv_thread_self();
-    return uv_run(loop_, UV_RUN_DEFAULT);
-}
-
-void server::stop_loop()
-{
-    uv_stop(loop_);
-}
-
 void server::on_connection(uv_stream_t* socket)
 {
     uv_tcp_t* tcp = new uv_tcp_t{};
@@ -439,7 +421,7 @@ void server::on_connection(uv_stream_t* socket)
     }
     else
     {
-        uv_close((uv_handle_t*)tcp, parser::on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
     }
 }
 
@@ -454,70 +436,31 @@ void server::on_connection_cb(uv_stream_t* socket, int status)
 
 bool server::remove_cache(const std::string& path)
 {
-    if ((void*)uv_thread_self() == server_thread_)
+    if ((void*)uv_thread_self() == loop_thread_)
         return file_cache_.erase(path) != 0;
-
+    else
     {
-        std::lock_guard<std::mutex> lock(list_mutex_);
-        to_remove_list_.push_back(path);
+        int r = async([=]() {
+            file_cache_.erase(path);
+        });
+        return r == 0;
     }
-
-    uv_async_t* async = new uv_async_t{};
-    uv_async_init(loop_, async, on_async_cb);
-    uv_handle_set_data((uv_handle_t*)async, this);
-    int r = uv_async_send(async);
-    if (r != 0)
-        delete async;
-    return r == 0;
 }
 
 void server::remove_cache(const std::vector<std::string>& paths)
 {
-    if ((void*)uv_thread_self() == server_thread_)
+    if ((void*)uv_thread_self() == loop_thread_)
     {
         for (const auto& path : paths)
             file_cache_.erase(path);
-        return;
     }
-
+    else
     {
-        std::lock_guard<std::mutex> lock(list_mutex_);
-        to_remove_list_.insert(to_remove_list_.cend(), paths.cbegin(), paths.cend());
+        async([=]() {
+            for (const auto& path : paths)
+                file_cache_.erase(path);
+        });
     }
-
-    uv_async_t* async = new uv_async_t{};
-    uv_async_init(loop_, async, on_async_cb);
-    uv_handle_set_data((uv_handle_t*)async, this);
-    int r = uv_async_send(async);
-    if (r != 0)
-        delete async;
-}
-
-void server::on_async()
-{
-    size_t count = 0;
-    do
-    {
-        std::string path;
-        {
-            std::lock_guard<std::mutex> lock(list_mutex_);
-            count = to_remove_list_.size();
-            if (count > 0)
-            {
-                path = to_remove_list_.front();
-                to_remove_list_.pop_front();
-            }
-        }
-        if (path.size())
-            file_cache_.erase(path);
-    } while (count > 0);
-}
-
-void server::on_async_cb(uv_async_t* handle)
-{
-    server* p_this = (server*)uv_handle_get_data((uv_handle_t*)handle);
-    uv_close((uv_handle_t*)handle, parser::on_closed_and_delete_cb);
-    p_this->on_async();
 }
 
 string_map server::mime_types =

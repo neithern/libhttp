@@ -338,17 +338,9 @@ protected:
     }
 };
 
-client::client(bool default_loop)
+client::client(bool use_default) : loop(use_default)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
-    loop_ = default_loop ? uv_default_loop() : uv_loop_new();
-    client_thread_ = (void*)uv_thread_self();
-}
-
-client::~client()
-{
-    if (loop_ != nullptr && loop_ != uv_default_loop())
-        uv_loop_delete(loop_);
 }
 
 void client::fetch(const request& request,
@@ -379,23 +371,19 @@ void client::fetch(const request& request,
     requester->on_redirect_ = std::move(on_redirect);
     requester->on_error_ = std::move(on_error);
 
-    if ((void*)uv_thread_self() == client_thread_)
+    if ((void*)uv_thread_self() == loop_thread_)
         requester->resolve();
     else
     {
-        std::lock_guard<std::mutex> lock(list_mutex_);
-        requester_list_.push_back(requester);
-
-        uv_async_t* async = new uv_async_t{};
-        uv_async_init(loop_, async, on_async_cb);
-        uv_handle_set_data((uv_handle_t*)async, this);
-        int r = uv_async_send(async);
-        if (r == 0)
-            return;
-
-        delete async;
-        if (on_error)
-            on_error(r);
+        int r = async([=]() {
+            requester->resolve();
+        });
+        if (r != 0)
+        {
+            delete requester;
+            if (on_error)
+                on_error(r);
+        }
     }
 }
 
@@ -473,42 +461,6 @@ void client::pull(const std::string& path,
     puller->on_content_ = std::move(on_content);
     puller->on_error_ = std::move(on_error);
     puller->start();
-}
-
-int client::run_loop(bool once, bool nowait)
-{
-    client_thread_ = (void*)uv_thread_self();
-    uv_run_mode mode = UV_RUN_DEFAULT;
-    if (once)
-        mode = nowait ? UV_RUN_NOWAIT : UV_RUN_ONCE;
-    return uv_run(loop_, mode);
-}
-
-void client::on_async()
-{
-    size_t count = 0;
-    do
-    {
-        _requester* requester = nullptr;
-        {
-            std::lock_guard<std::mutex> lock(list_mutex_);
-            count = requester_list_.size();
-            if (count > 0)
-            {
-                requester = requester_list_.front();
-                requester_list_.pop_front();
-            }
-        }
-        if (requester != nullptr)
-            requester->resolve();
-    } while (count > 0);
-}
-
-void client::on_async_cb(uv_async_t* handle)
-{
-    client* p_this = (client*)uv_handle_get_data((uv_handle_t*)handle);
-    uv_close((uv_handle_t*)handle, parser::on_closed_and_delete_cb);
-    p_this->on_async();
 }
 
 } // namespace http
