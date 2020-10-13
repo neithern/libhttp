@@ -11,7 +11,7 @@ namespace http
 {
 
 using on_response = std::function<bool(const response& res)>;
-using on_content = std::function<bool(const char* data, size_t size, bool final)>;
+using on_content = std::function<bool(const char* data, size_t size, bool end)>;
 using on_content_body = std::function<void(const std::string& body, int error)>;
 using on_redirect = std::function<bool(std::string& url)>;
 using on_error = std::function<void(int code)>;

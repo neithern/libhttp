@@ -406,12 +406,14 @@ void client::fetch(const request& request,
 
     fetch(request, on_response ? std::move(on_response) :
         [=](const response& res) {
-            p_body->reserve((size_t)res.content_length.value_or(4096));
+            auto length = res.content_length.value_or(4096);
+            if (length > 0)
+                p_body->reserve(length);
             return res.is_ok();
         },
-        [=](const char* data, size_t size, bool final) {
+        [=](const char* data, size_t size, bool end) {
             p_body->append(data, size);
-            if (final)
+            if (end)
                 on_end(0);
             return true;
         },
