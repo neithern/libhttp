@@ -56,7 +56,8 @@ public:
 
     bool serve_file(const std::string& path, const request2& req, response2& res);
 
-    bool listen(const std::string& address, int port);
+    bool listen(const std::string& address, int port, int socket_type = 0);
+    inline int port() const { return port_; }
 
     // can call in other threads
     bool remove_cache(const std::string& path);
@@ -67,6 +68,7 @@ private:
     static void on_connection_cb(uv_stream_t* socket, int status);
 
 private:
+    int port_;
     uv_stream_t* socket_;
     std::shared_ptr<class buffer_pool> buffer_pool_;
     std::unordered_map<std::string, std::shared_ptr<class file_map>> file_cache_;

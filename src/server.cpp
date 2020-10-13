@@ -311,6 +311,7 @@ protected:
 server::server(bool use_default) : loop(use_default)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
+    port_ = 0;
     socket_ = nullptr;
 }
 
@@ -320,17 +321,18 @@ server::~server()
         uv_close((uv_handle_t*)socket_, on_closed_and_delete_cb);
 }
 
-bool server::listen(const std::string& address, int port)
+bool server::listen(const std::string& address, int port, int socket_type)
 {
     if (socket_ == nullptr)
     {
         socket_ = (uv_stream_t*) new uv_tcp_t{};
-        uv_tcp_init(loop_, (uv_tcp_t*)socket_);
+        uv_tcp_init_ex(loop_, (uv_tcp_t*)socket_, socket_type);
     }
 
     sockaddr_in addr;
     uv_ip4_addr(address.c_str(), port, &addr);
     uv_tcp_bind((uv_tcp_t*)socket_, (const sockaddr*)&addr, 0);
+    port_ = addr.sin_port;
     uv_handle_set_data((uv_handle_t*)socket_, this);
     int r = uv_listen(socket_, 128, on_connection_cb);
     return r == 0;
