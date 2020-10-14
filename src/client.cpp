@@ -153,16 +153,12 @@ protected:
         }
 
         response_.content_length = content_length;
-        return on_response_(response_);
+        return on_response_ ? on_response_(response_) : true;
     }
 
     virtual bool on_content_received(const char* data, size_t size)
     {
-        if (on_content_)
-            return on_content_(data, size, is_read_done());
-
-        set_read_done();
-        return false;
+        return on_content_ ? on_content_(data, size, is_read_done()) : true;
     }
 
     virtual void on_read_end(int error_code)
