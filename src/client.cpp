@@ -13,6 +13,90 @@
 namespace http
 {
 
+static int _socket_checker_count_ = 0;
+
+class _socket_checker
+{
+    define_reference_count(_socket_checker)
+
+public:
+    _socket_checker(uv_stream_t* socket, std::string key, std::shared_ptr<std::unordered_multimap<std::string, class _socket_checker*>> socket_cache)
+    {
+        socket_ = socket;
+        uv_handle_set_data((uv_handle_t*)socket_, this);
+        key_ = key;
+        socket_cache_ = socket_cache;
+
+        _socket_checker_count_++;
+    }
+
+    ~_socket_checker()
+    {
+        if (socket_ != nullptr)
+        {
+            uv_handle_set_data((uv_handle_t*)socket_, nullptr);
+            uv_close((uv_handle_t*)socket_, parser::on_closed_and_delete_cb);
+
+            auto range = socket_cache_->equal_range(key_);
+            for (auto it = range.first; it != range.second; it++)
+            {
+                if (it->second == this)
+                {
+                    socket_cache_->erase(it);
+                    break;
+                }
+            }
+        }
+
+        _socket_checker_count_--;
+        trace("%d living socket checkers\n", _socket_checker_count_);
+    }
+
+    int start()
+    {
+        return socket_ != nullptr ? uv_read_start(socket_, on_alloc_cb, on_read_cb) : -1;
+    }
+
+    uv_stream_t* stop()
+    {
+        uv_stream_t* socket = socket_;
+        socket_ = nullptr;
+        if (socket != nullptr)
+        {
+            uv_handle_set_data((uv_handle_t*)socket, nullptr);
+            socket_cache_->erase(key_);
+        }
+       return socket;
+    }
+
+protected:
+    void on_read(ssize_t status)
+    {
+        release();
+    }
+
+    static void on_alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf)
+    {
+        buf->base = (char*)malloc(64);
+        buf->len = buf->base != nullptr ? 64 : 0;
+    }
+
+    static void on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
+    {
+        free(buf->base);
+
+        uv_read_stop(socket);
+        _socket_checker* p_this = (_socket_checker*)uv_handle_get_data((uv_handle_t*)socket);
+        if (p_this != NULL)
+            p_this->on_read(nread);
+    }
+
+private:
+    uv_stream_t* socket_;
+    std::string key_;
+    std::shared_ptr<std::unordered_multimap<std::string, class _socket_checker*>> socket_cache_;
+};
+
 static int _requester_count_ = 0;
 
 class _requester : public parser, public content_writer
@@ -33,14 +117,15 @@ protected:
     on_response on_response_;
     on_redirect on_redirect_;
     on_content on_content_;
-    on_error on_error_ = nullptr;
+    on_error on_error_;
 
     bool keep_alive_ = false;
     bool redirecting_ = false;
+    int last_error_ = 0;
 
-    std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache_;
+    std::shared_ptr<std::unordered_multimap<std::string, _socket_checker*>> socket_cache_;
 
-    _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool, std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache) :
+    _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool, std::shared_ptr<std::unordered_multimap<std::string, _socket_checker*>> socket_cache) :
         parser(false, buffer_pool),
         content_writer(loop),
         socket_cache_(socket_cache)
@@ -48,38 +133,57 @@ protected:
         _requester_count_++;
     }
 
-    virtual ~_requester()
+    ~_requester()
     {
         close_socket();
 
-        trace("%d living requesters\n", --_requester_count_);
+        _requester_count_--;
+        trace("%d living requesters\n", _requester_count_);
     }
 
     void close_socket()
     {
         uv_stream_t* socket = socket_;
+        bool keep_alive = keep_alive_;
         socket_ = nullptr;
+        keep_alive_ = false;
         if (socket != nullptr)
         {
             uv_handle_set_data((uv_handle_t*)socket, nullptr);
-            if (keep_alive_)
-                (*socket_cache_)[uri_.host + ':' + uri_.port] = (uv_tcp_t*)socket;
-            else
-                uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
+            if (keep_alive && last_error_ == 0)
+            {
+                std::string key = uri_.host + ':' + uri_.port;
+                auto checker = new _socket_checker(socket, key, socket_cache_);
+                if (checker->start() == 0)
+                {
+                    socket_cache_->emplace(key, checker);
+                    return;
+                }
+                checker->release();
+            }
+            uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
             // trace("%p:%p socket closed\n", this, socket);
         }
-        keep_alive_ = false;
     }
 
     int resolve()
     {
-        auto p = socket_cache_->find(uri_.host + ':' + uri_.port);
-        uv_tcp_t* socket = p != socket_cache_->cend() ? p->second : nullptr;
-        if (socket != nullptr)
+        std::string key = uri_.host + ':' + uri_.port;
+        auto range = socket_cache_->equal_range(key);
+        if (range.first != range.second)
         {
-            socket_ = (uv_stream_t*)socket;
-            uv_handle_set_data((uv_handle_t*)socket, this);
-            return on_connected();
+            _socket_checker* checker = range.first->second;
+            socket_cache_->erase(range.first);
+            if (checker != nullptr)
+            {
+                socket_ = checker->stop();
+                checker->release();
+                if (socket_ != nullptr)
+                {
+                    uv_handle_set_data((uv_handle_t*)socket_, this);
+                    return on_connected();
+                }
+            }
         }
 
         addrinfo hints = {};
@@ -115,6 +219,8 @@ protected:
             headers[HEADER_USER_AGENT] = LIBHTTP_TAG;
         if (!headers.count(HEADER_ACCEPT_ENCODING))
             headers[HEADER_ACCEPT_ENCODING] = "identity";
+        if (!headers.count(HEADER_CONNECTION))
+            headers[HEADER_CONNECTION] = "Keep-Alive";
 
         for (auto& p : headers)
         {
@@ -210,6 +316,7 @@ protected:
 
     void on_end(int error_code)
     {
+        last_error_ = error_code;
         if (error_code < 0/* && error_code != UV_E_USER_CANCELLED*/)
         {
             trace("%p:%p end: %s, %s, %d\n", this, socket_, uv_err_name(error_code), request_.url.c_str(), ref_count_);
@@ -258,13 +365,13 @@ private:
 client::client(bool use_default) : loop(use_default)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
-    socket_cache_ = std::make_shared<std::unordered_map<std::string, uv_tcp_t*>>();
+    socket_cache_ = std::make_shared<std::unordered_multimap<std::string, _socket_checker*>>();
 }
 
 client::~client()
 {
     for (auto& p : (*socket_cache_))
-        uv_close((uv_handle_t*)p.second, on_closed_and_delete_cb);
+        p.second->release();
     socket_cache_->clear();
 }
 

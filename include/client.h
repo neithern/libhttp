@@ -7,8 +7,6 @@
 #include "common.h"
 #include "loop.h"
 
-typedef struct uv_tcp_s uv_tcp_t;
-
 namespace http
 {
 
@@ -37,7 +35,7 @@ public:
 
 private:
     std::shared_ptr<class buffer_pool> buffer_pool_;
-    std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache_;
+    std::shared_ptr<std::unordered_multimap<std::string, class _socket_checker*>> socket_cache_;
 };
 
 } // namespace http

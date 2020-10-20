@@ -19,8 +19,6 @@
 #undef min
 #endif
 
-#define _ENABLE_KEEP_ALIVE_
-
 namespace http
 {
 
@@ -77,9 +75,10 @@ protected:
         _responser_count_++;
     }
 
-    virtual ~_responser()
+    ~_responser()
     {
-        trace("%d living responsers\n", --_responser_count_);
+        _responser_count_--;
+        trace("%d living responsers\n", _responser_count_);
     }
 
     void start()
@@ -227,13 +226,11 @@ protected:
                 headers[HEADER_ACCEPT_RANGES] = "bytes";
         }
 
-        // emplace server info if not set
-        response_.headers.emplace(HEADER_SERVER, LIBHTTP_TAG);
+        if (!headers.count(HEADER_SERVER))
+            headers[HEADER_SERVER] = LIBHTTP_TAG;
 
-#ifdef _ENABLE_KEEP_ALIVE_
-        if (!response_.headers.count(HEADER_CONNECTION))
-            response_.headers[HEADER_CONNECTION] = keep_alive_ ? "Keep-Alive" : "Close";
-#endif
+        if (!headers.count(HEADER_CONNECTION))
+            headers[HEADER_CONNECTION] = keep_alive_ ? "Keep-Alive" : "Close";
 
         if (response_.status_msg.empty())
         {
@@ -291,7 +288,6 @@ protected:
 
         if (error_code != 0)
             keep_alive_ = false;
-#ifdef _ENABLE_KEEP_ALIVE_
         if (keep_alive_)
         {
             trace("%p:%p alive%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
@@ -299,7 +295,6 @@ protected:
             if (start_read(socket_) == 0)
                 return;
         }
-#endif
         trace("%p:%p end%d: %s, %s, %d\n", this, socket_, reason, error_code == 0 ? "DONE" : uv_err_name(error_code), request_.url.c_str(), ref_count_);
 
         state_ = state_none;
