@@ -4,7 +4,6 @@
 #include <functional>
 
 typedef struct uv_loop_s uv_loop_t;
-typedef struct uv_work_s uv_work_t;
 
 namespace http
 {

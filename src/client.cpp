@@ -4,7 +4,6 @@
 #include "buffer-pool.h"
 #include "client.h"
 #include "content-writer.h"
-#include "file-reader.h"
 #include "parser.h"
 #include "reference-count.h"
 #include "trace.h"
@@ -39,9 +38,12 @@ protected:
     bool keep_alive_ = false;
     bool redirecting_ = false;
 
-    _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool) :
+    std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache_;
+
+    _requester(uv_loop_t* loop, std::shared_ptr<buffer_pool> buffer_pool, std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache) :
         parser(false, buffer_pool),
-        content_writer(loop)
+        content_writer(loop),
+        socket_cache_(socket_cache)
     {
         _requester_count_++;
     }
@@ -55,18 +57,31 @@ protected:
 
     void close_socket()
     {
-        uv_stream_t* tcp = socket_;
+        uv_stream_t* socket = socket_;
         socket_ = nullptr;
-        if (tcp != nullptr)
+        if (socket != nullptr)
         {
-            uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-            uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
-            // trace("%p:%p socket closed\n", this, tcp);
+            uv_handle_set_data((uv_handle_t*)socket, nullptr);
+            if (keep_alive_)
+                (*socket_cache_)[uri_.host + ':' + uri_.port] = (uv_tcp_t*)socket;
+            else
+                uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
+            // trace("%p:%p socket closed\n", this, socket);
         }
+        keep_alive_ = false;
     }
 
     int resolve()
     {
+        auto p = socket_cache_->find(uri_.host + ':' + uri_.port);
+        uv_tcp_t* socket = p != socket_cache_->cend() ? p->second : nullptr;
+        if (socket != nullptr)
+        {
+            socket_ = (uv_stream_t*)socket;
+            uv_handle_set_data((uv_handle_t*)socket, this);
+            return on_connected();
+        }
+
         addrinfo hints = {};
         hints.ai_family = PF_INET;
         hints.ai_socktype = SOCK_STREAM;
@@ -141,16 +156,15 @@ protected:
                 uv_handle_set_data((uv_handle_t*)async, this);
                 int r = uv_async_send(async);
                 redirecting_ = r == 0;
-                if (redirecting_)
-                    keep_alive_ = case_equals(host, uri_.host)
-                                && (p = response_.headers.find(HEADER_CONNECTION)) != end
-                                    && case_equals(p->second, "Keep-Alive");  
-                else
+                if (!redirecting_)
                     delete async;
                 set_read_done();
                 return true;
             }
         }
+
+        p = response_.headers.find(HEADER_CONNECTION);
+        keep_alive_ = p != end && case_equals(p->second, "Keep-Alive");
 
         response_.content_length = content_length;
         return on_response_ ? on_response_(response_) : true;
@@ -182,7 +196,7 @@ protected:
         if (r == 0)
             socket_ = (uv_stream_t*)socket;
         else
-            uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
+           uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
         return r;
     }
 
@@ -223,18 +237,8 @@ private:
         uv_close((uv_handle_t*)handle, on_closed_and_delete_cb);
 
         p_this->redirecting_ = false;
-
-        int status;
-        if (p_this->keep_alive_)
-        {
-            p_this->keep_alive_ = false;
-            status = p_this->on_connected();
-        }
-        else
-        {
-            p_this->close_socket();
-            status = p_this->resolve();
-        }
+        p_this->close_socket();
+        int status = p_this->resolve();
         if (status < 0)
             p_this->on_end(status);
     }
@@ -251,92 +255,17 @@ private:
     }
 };
 
-class file_puller
-{
-    define_reference_count(file_puller)
-
-    friend class client;
-
-protected:
-    uv_loop_t* loop_;
-    uv_async_t async_;
-    uint64_t length_;
-    uint64_t offset_;
-
-    std::shared_ptr<file_reader> reader_;
-    on_content on_content_;
-    on_error on_error_ = nullptr;
-
-public:
-    file_puller(uv_loop_t* loop, std::shared_ptr<file_reader> reader, uint64_t length)
-    {
-        loop_ = loop;
-        reader_ = reader;
-        length_ = length;
-        offset_ = 0;
-
-        uv_async_init(loop_, &async_, on_async_cb);
-        uv_handle_set_data((uv_handle_t*)&async_, this);
-    }
-
-    ~file_puller()
-    {
-        uv_handle_set_data((uv_handle_t*)&async_, nullptr);
-        uv_close((uv_handle_t*)&async_, nullptr);
-    }
-
-    void start()
-    {
-        on_async();
-    }
-
-protected:
-    void on_async()
-    {
-        int r = reader_->request_chunk(offset_, 64 * 1024, sink_);
-        if (r < 0 && r != UV_EAGAIN)
-            on_end(r);
-    }
-
-    void on_end(int error_code)
-    {
-        if (error_code < 0 && on_error_)
-            on_error_(error_code);
-        release();
-    }
-
-    content_sink sink_ = [this](const char* data, size_t size, content_done done)
-    {
-        if ((int)size > 0)
-            offset_ += size;
-
-        int r = (int)size;
-        bool final_call = r < 0 || offset_ >= length_;
-        if (!on_content_(data, size, final_call))
-        {
-            r = UV_E_USER_CANCELLED;
-            final_call = true;
-        }
-        if (done)
-            done();
-
-        if (final_call)
-            on_end(r >= 0 ? 0 : r);
-        else
-            uv_async_send(&async_);
-    };
-
-    static void on_async_cb(uv_async_t* handle)
-    {
-        file_puller* p_this = (file_puller*)uv_handle_get_data((uv_handle_t*)handle);
-        if (p_this != nullptr)
-            p_this->on_async();
-    }
-};
-
 client::client(bool use_default) : loop(use_default)
 {
     buffer_pool_ = std::make_shared<buffer_pool>();
+    socket_cache_ = std::make_shared<std::unordered_map<std::string, uv_tcp_t*>>();
+}
+
+client::~client()
+{
+    for (auto& p : (*socket_cache_))
+        uv_close((uv_handle_t*)p.second, on_closed_and_delete_cb);
+    socket_cache_->clear();
 }
 
 void client::fetch(const request& request,
@@ -345,7 +274,7 @@ void client::fetch(const request& request,
                 on_redirect&& on_redirect,
                 on_error&& on_error)
 {
-    _requester* requester = new _requester(loop_, buffer_pool_);
+    _requester* requester = new _requester(loop_, buffer_pool_, socket_cache_);
     if (requester == nullptr)
     {
         if (on_error)
@@ -416,49 +345,6 @@ void client::fetch(const request& request,
         std::move(on_redirect),
         std::move(on_end)
     );
-}
-
-void client::pull(const std::string& path,
-                on_content&& on_content,
-                on_error&& on_error)
-{
-    uv_fs_t fs_req{};
-    int r = uv_fs_stat(loop_, &fs_req, path.c_str(), nullptr);
-    uint64_t length = fs_req.statbuf.st_size;
-    uv_fs_req_cleanup(&fs_req);
-    if (r != 0 || fs_req.result != 0 || !(fs_req.statbuf.st_mode & S_IFREG) || length == 0)
-    {
-        if (on_error)
-            on_error(UV_EINVAL);
-        return;
-    }
-
-    std::shared_ptr<file_reader> reader = std::make_shared<file_reader>(loop_, path, buffer_pool_);
-    if (reader == nullptr)
-    {
-        if (on_error)
-            on_error(UV_ENOMEM);
-        return;
-    }
-
-    if (reader->get_fd() < 0)
-    {
-        if (on_error)
-            on_error(UV_EACCES);
-        return;
-    }
-
-    file_puller* puller = new file_puller(loop_, reader, length);
-    if (puller == nullptr)
-    {
-        if (on_error)
-            on_error(UV_ENOMEM);
-        return;
-    }
-
-    puller->on_content_ = std::move(on_content);
-    puller->on_error_ = std::move(on_error);
-    puller->start();
 }
 
 } // namespace http

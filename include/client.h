@@ -7,6 +7,8 @@
 #include "common.h"
 #include "loop.h"
 
+typedef struct uv_tcp_s uv_tcp_t;
+
 namespace http
 {
 
@@ -20,6 +22,7 @@ class client : public loop
 {
 public:
     client(bool use_default = true);
+    ~client();
 
     void fetch(const request& request,
                 on_response&& on_response,
@@ -32,13 +35,9 @@ public:
                 on_response&& on_response = nullptr,
                 on_redirect&& on_redirect = [](std::string& url) { return true; });
 
-    // pull local file
-    void pull(const std::string& path,
-                on_content&& on_content,
-                on_error&& on_error = nullptr);
-
 private:
     std::shared_ptr<class buffer_pool> buffer_pool_;
+    std::shared_ptr<std::unordered_map<std::string, uv_tcp_t*>> socket_cache_;
 };
 
 } // namespace http
