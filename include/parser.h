@@ -31,7 +31,7 @@ public:
 
     int start_read(uv_stream_t* socket);
 
-    static void on_closed_and_delete_cb(uv_handle_t* handle);
+    static void on_closed_and_free_cb(uv_handle_t* handle);
 
 protected:
     inline bool is_read_done() { return content_received_ >= content_to_receive_; }

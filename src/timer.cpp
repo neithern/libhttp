@@ -10,7 +10,7 @@ timer::timer(std::function<void()>&& callback, uv_loop_t* loop)
 {
     callback_ = std::move(callback);
     started_ = false;
-    timer_ = new uv_timer_t{};
+    timer_ = (uv_timer_t*)calloc(sizeof(uv_timer_t), 1);
     uv_handle_set_data((uv_handle_t*)timer_, this);
 
     if (loop == nullptr)
@@ -23,13 +23,11 @@ timer::~timer()
     if (started_)
         uv_timer_stop(timer_);
 
-    uv_timer_t* t = timer_;
-    timer_ = nullptr;
-    if (t != nullptr)
+    if (timer_ != nullptr)
     {
-        uv_handle_set_data((uv_handle_t*)t, nullptr);
-        uv_close((uv_handle_t*)t, [](uv_handle_t* handle) {
-            delete (uv_timer_t*)handle;
+        uv_handle_set_data((uv_handle_t*)timer_, nullptr);
+        uv_close((uv_handle_t*)timer_, [](uv_handle_t* handle) {
+            free(handle);
         });
     }
 }

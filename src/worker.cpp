@@ -32,7 +32,7 @@ static void after_worker_cb(uv_work_t* req, int status)
         p_data->done = nullptr;
     }
     delete p_data;
-    delete req;
+    free(req);
 }
 
 bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&& done, uv_loop_t* loop)
@@ -40,7 +40,7 @@ bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&
     if (loop == nullptr)
         loop = uv_default_loop();
 
-    auto req = new uv_work_t{};
+    uv_work_t* req = (uv_work_t*)calloc(sizeof(uv_work_t), 1);
     auto p_data = new work_req_data{};
     p_data->work = std::move(work);
     p_data->done = std::move(done);

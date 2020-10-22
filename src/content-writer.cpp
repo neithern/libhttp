@@ -78,7 +78,7 @@ content_writer::~content_writer()
     if (tcp != nullptr)
     {
         uv_handle_set_data((uv_handle_t*)tcp, nullptr);
-        uv_close((uv_handle_t*)tcp, parser::on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)tcp, parser::on_closed_and_free_cb);
     }
 }
 

@@ -35,7 +35,7 @@ public:
         if (socket_ != nullptr)
         {
             uv_handle_set_data((uv_handle_t*)socket_, nullptr);
-            uv_close((uv_handle_t*)socket_, parser::on_closed_and_delete_cb);
+            uv_close((uv_handle_t*)socket_, parser::on_closed_and_free_cb);
 
             auto range = socket_cache_->equal_range(key_);
             for (auto it = range.first; it != range.second; it++)
@@ -161,7 +161,7 @@ protected:
                 }
                 checker->release();
             }
-            uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
+            uv_close((uv_handle_t*)socket, on_closed_and_free_cb);
             // trace("%p:%p socket closed\n", this, socket);
         }
     }
@@ -192,7 +192,7 @@ protected:
         hints.ai_protocol = IPPROTO_TCP;
         hints.ai_flags = 0;
 
-        uv_getaddrinfo_t* req = new uv_getaddrinfo_t{};
+        uv_getaddrinfo_t* req = (uv_getaddrinfo_t*)calloc(sizeof(uv_getaddrinfo_t), 1);
         uv_req_set_data((uv_req_t*)req, this);
         int r = uv_getaddrinfo(loop_, req, on_resolved_cb, uri_.host.c_str(), uri_.port.c_str(), &hints);
         if (r != 0)
@@ -257,14 +257,14 @@ protected:
             std::string location = p->second;
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
-                uv_async_t* async = new uv_async_t{};
+                uv_async_t* async = (uv_async_t*)calloc(sizeof(uv_async_t), 1);
                 uv_async_init(loop_, async, on_redirect_cb);
                 uv_handle_set_data((uv_handle_t*)async, this);
                 int r = uv_async_send(async);
                 redirecting_ = r == 0;
-                if (!redirecting_)
-                    delete async;
                 set_read_done();
+                if (r != 0)
+                    uv_close((uv_handle_t*)async, on_closed_and_free_cb);
                 return true;
             }
         }
@@ -292,17 +292,17 @@ protected:
 
     int on_resolved(addrinfo* res)
     {
-        uv_tcp_t* socket = new uv_tcp_t{};
+        uv_tcp_t* socket = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
         uv_tcp_init(loop_, socket);
         uv_handle_set_data((uv_handle_t*)socket, this);
 
-        uv_connect_t* req = new uv_connect_t{};
+        uv_connect_t* req = (uv_connect_t*)calloc(sizeof(uv_connect_t), 1);
         uv_req_set_data((uv_req_t*)req, this);
         int r = uv_tcp_connect(req, socket, res->ai_addr, on_connected_cb);
         if (r == 0)
             socket_ = (uv_stream_t*)socket;
         else
-           uv_close((uv_handle_t*)socket, on_closed_and_delete_cb);
+           uv_close((uv_handle_t*)socket, on_closed_and_free_cb);
         return r;
     }
 
@@ -330,7 +330,7 @@ private:
     static void on_connected_cb(uv_connect_t* req, int status)
     {
         _requester* p_this = (_requester*)uv_req_get_data((uv_req_t*)req);
-        delete req;
+        free(req);
 
         if (status == 0)
             status = p_this->on_connected();
@@ -341,7 +341,7 @@ private:
     static void on_redirect_cb(uv_async_t* handle)
     {
         _requester* p_this = (_requester*)uv_handle_get_data((uv_handle_t*)handle);
-        uv_close((uv_handle_t*)handle, on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)handle, on_closed_and_free_cb);
 
         p_this->redirecting_ = false;
         p_this->close_socket();
@@ -353,7 +353,7 @@ private:
     static void on_resolved_cb(uv_getaddrinfo_t* req, int status, addrinfo* res)
     {
         _requester* p_this = (_requester*)uv_req_get_data((uv_req_t*)req);
-        delete req;
+        free(req);
 
         if (status == 0)
             status = p_this->on_resolved(res);

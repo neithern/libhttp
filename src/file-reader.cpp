@@ -12,7 +12,7 @@ file_reader::file_reader(uv_loop_t* loop, const std::string& path, std::shared_p
     loop_ = loop;
     buffer_pool_ = buffer_pool;
 
-    read_req_ = new read_req{};
+    read_req_ = (read_req*)calloc(sizeof(read_req), 1);
     if (read_req_ != nullptr)
         uv_req_set_data((uv_req_t*)read_req_, this);
 
@@ -28,7 +28,7 @@ file_reader::~file_reader()
         if (uv_cancel((uv_req_t*)read_req_) == 0)
         {
             buffer_pool_->recycle_buffer(read_req_->buf);
-            delete read_req_;
+            free(read_req_);
         }
         else
             uv_req_set_data((uv_req_t*)&read_req_, nullptr);
@@ -36,13 +36,13 @@ file_reader::~file_reader()
     else
     {
         buffer_pool_->recycle_buffer(read_req_->buf);
-        delete read_req_;
+        free(read_req_);
     }
 
-    uv_fs_t* close_req = new uv_fs_t{};
+    uv_fs_t* close_req = (uv_fs_t*)calloc(sizeof(uv_fs_t), 1);
     uv_fs_close(loop_, close_req, fd_, [](uv_fs_t* req) {
         uv_fs_req_cleanup(req);
-        delete req;
+        free(req);
     });
 }
 

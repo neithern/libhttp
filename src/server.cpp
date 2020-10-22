@@ -313,15 +313,16 @@ server::server(bool use_default) : loop(use_default)
 server::~server()
 {
     if (socket_ != nullptr)
-        uv_close((uv_handle_t*)socket_, on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)socket_, on_closed_and_free_cb);
 }
 
 bool server::listen(const std::string& address, int port, int socket_type)
 {
     if (socket_ == nullptr)
     {
-        socket_ = (uv_stream_t*) new uv_tcp_t{};
-        uv_tcp_init_ex(loop_, (uv_tcp_t*)socket_, socket_type);
+        uv_tcp_t* tcp = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
+        uv_tcp_init_ex(loop_, tcp, socket_type);
+        socket_ = (uv_stream_t*)tcp;
     }
 
     sockaddr_in addr;
@@ -409,7 +410,7 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
 
 void server::on_connection(uv_stream_t* socket)
 {
-    uv_tcp_t* tcp = new uv_tcp_t{};
+    uv_tcp_t* tcp = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
     uv_tcp_init(loop_, tcp);
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
@@ -418,7 +419,7 @@ void server::on_connection(uv_stream_t* socket)
     }
     else
     {
-        uv_close((uv_handle_t*)tcp, on_closed_and_delete_cb);
+        uv_close((uv_handle_t*)tcp, on_closed_and_free_cb);
     }
 }
 

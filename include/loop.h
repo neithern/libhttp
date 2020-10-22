@@ -28,7 +28,7 @@ public:
  
     void stop_loop();
 
-    static void on_closed_and_delete_cb(uv_handle_t* handle);
+    static void on_closed_and_free_cb(uv_handle_t* handle);
 
 protected:
     struct async_data

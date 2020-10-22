@@ -152,9 +152,9 @@ void parser::on_alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf)
     }
 }
 
-void parser::on_closed_and_delete_cb(uv_handle_t* handle)
+void parser::on_closed_and_free_cb(uv_handle_t* handle)
 {
-    delete handle;
+    free(handle);
 }
 
 void parser::on_read_cb(uv_stream_t* socket, ssize_t nread, const uv_buf_t* buf)
