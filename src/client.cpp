@@ -385,7 +385,7 @@ client::~client()
     socket_cache_->clear();
 }
 
-void client::fetch(const request& request,
+int client::fetch(const request& request,
                 on_response&& on_response,
                 on_content&& on_content,
                 on_redirect&& on_redirect,
@@ -396,7 +396,7 @@ void client::fetch(const request& request,
     {
         if (on_error)
             on_error(UV_ENOMEM);
-        return;
+        return UV_ENOMEM;
     }
 
     if (!requester->uri_.parse(request.url))
@@ -404,7 +404,7 @@ void client::fetch(const request& request,
         delete requester;
         if (on_error)
             on_error(UV_EINVAL);
-        return;
+        return UV_EINVAL;
     }
 
     requester->request_ = request;
@@ -414,7 +414,10 @@ void client::fetch(const request& request,
     requester->on_error_ = std::move(on_error);
 
     if ((void*)uv_thread_self() == loop_thread_)
-        requester->resolve();
+    {
+        // will delete this and call on_error() if failed in resolve()
+        return requester->resolve();
+    }
     else
     {
         int r = async([=]() {
@@ -426,10 +429,11 @@ void client::fetch(const request& request,
             if (on_error)
                 on_error(r);
         }
+        return r;
     }
 }
 
-void client::fetch(const request& request,
+int client::fetch(const request& request,
                 on_content_body&& on_body,
                 on_response&& on_response,
                 on_redirect&& on_redirect)
@@ -438,7 +442,7 @@ void client::fetch(const request& request,
     if (p_body == nullptr)
     {
         on_body("", UV_ENOMEM);
-        return;
+        return UV_ENOMEM;
     }
 
     auto on_end = [=](int code) {
@@ -446,7 +450,7 @@ void client::fetch(const request& request,
         delete p_body;
     };
 
-    fetch(request, on_response ? std::move(on_response) :
+    return fetch(request, on_response ? std::move(on_response) :
         [=](const response& res) {
             auto length = res.content_length.value_or(4096);
             if (length > 0)

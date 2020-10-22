@@ -22,13 +22,13 @@ public:
     client(bool use_default = true);
     ~client();
 
-    void fetch(const request& request,
+    int fetch(const request& request,
                 on_response&& on_response,
                 on_content&& on_content,
                 on_redirect&& on_redirect = nullptr,
                 on_error&& on_error = nullptr);
 
-    void fetch(const request& request,
+    int fetch(const request& request,
                 on_content_body&& on_body,
                 on_response&& on_response = nullptr,
                 on_redirect&& on_redirect = [](std::string& url) { return true; });
