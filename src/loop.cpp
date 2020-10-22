@@ -24,14 +24,20 @@ int loop::async(std::function<void()>&& work)
     data->work = std::move(work);
 
     uv_async_t* async = (uv_async_t*)calloc(sizeof(uv_async_t), 1);
-    uv_async_init(loop_, async, on_async_cb);
-    uv_handle_set_data((uv_handle_t*)async, data);
-    int r = uv_async_send(async);
-    if (r == 0)
-        return 0;
+    int r = uv_async_init(loop_, async, on_async_cb);
+    if (r != 0)
+    {
+        free(async);
+        return r;
+    }
 
-    delete data;
-    uv_close((uv_handle_t*)async, on_closed_and_free_cb);
+    uv_handle_set_data((uv_handle_t*)async, data);
+    r = uv_async_send(async);
+    if (r != 0)
+    {
+        delete data;
+        uv_close((uv_handle_t*)async, on_closed_and_free_cb);
+    }
     return r;
 }
 

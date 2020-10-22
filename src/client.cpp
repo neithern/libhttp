@@ -258,14 +258,19 @@ protected:
             if (on_redirect_ && on_redirect_(location) && uri_.parse(location))
             {
                 uv_async_t* async = (uv_async_t*)calloc(sizeof(uv_async_t), 1);
-                uv_async_init(loop_, async, on_redirect_cb);
+                int r = uv_async_init(loop_, async, on_redirect_cb);
+                if (r != 0)
+                {
+                    free(async);
+                    return false;
+                }
                 uv_handle_set_data((uv_handle_t*)async, this);
-                int r = uv_async_send(async);
+                r = uv_async_send(async);
                 redirecting_ = r == 0;
                 set_read_done();
                 if (r != 0)
                     uv_close((uv_handle_t*)async, on_closed_and_free_cb);
-                return true;
+                return r == 0;
             }
         }
 
@@ -293,12 +298,17 @@ protected:
     int on_resolved(addrinfo* res)
     {
         uv_tcp_t* socket = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
-        uv_tcp_init(loop_, socket);
+        int r = uv_tcp_init(loop_, socket);
+        if (r != 0)
+        {
+            free(socket);
+            return r;
+        }
         uv_handle_set_data((uv_handle_t*)socket, this);
 
         uv_connect_t* req = (uv_connect_t*)calloc(sizeof(uv_connect_t), 1);
         uv_req_set_data((uv_req_t*)req, this);
-        int r = uv_tcp_connect(req, socket, res->ai_addr, on_connected_cb);
+        r = uv_tcp_connect(req, socket, res->ai_addr, on_connected_cb);
         if (r == 0)
             socket_ = (uv_stream_t*)socket;
         else

@@ -321,7 +321,11 @@ bool server::listen(const std::string& address, int port, int socket_type)
     if (socket_ == nullptr)
     {
         uv_tcp_t* tcp = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
-        uv_tcp_init_ex(loop_, tcp, socket_type);
+        if (uv_tcp_init_ex(loop_, tcp, socket_type) != 0)
+        {
+            free(tcp);
+            return false;
+        }
         socket_ = (uv_stream_t*)tcp;
     }
 
@@ -411,10 +415,14 @@ bool server::serve_file(const std::string& path, const request2& req, response2&
 void server::on_connection(uv_stream_t* socket)
 {
     uv_tcp_t* tcp = (uv_tcp_t*)calloc(sizeof(uv_tcp_t), 1);
-    uv_tcp_init(loop_, tcp);
+    if (uv_tcp_init(loop_, tcp) != 0)
+    {
+        free(tcp);
+        return;
+    }
     if (uv_accept(socket, (uv_stream_t*)tcp) == 0)
     {
-        uv_tcp_keepalive(tcp, 1, 30); // in seconds
+        uv_tcp_keepalive(tcp, 1, 60); // in seconds
         (new _responser(loop_, (uv_stream_t*)tcp, buffer_pool_, router_map_, router_list_))->start();
     }
     else
