@@ -31,15 +31,15 @@ public:
     static void on_closed_and_free_cb(uv_handle_t* handle);
 
 protected:
-    void on_async();
+    struct async_data
+    {
+        std::function<void()> work;
+    };
     static void on_async_cb(uv_async_t* handle);
 
 protected:
     uv_loop_t* loop_;
     void* loop_thread_;
-    uv_async_t* work_async_;
-    std::mutex work_mutex_;
-    std::list<std::function<void()>> work_list_;
 };
 
 } // namespace http
