@@ -10,35 +10,37 @@ loop::loop(bool use_default)
 {
     loop_ = use_default ? uv_default_loop() : uv_loop_new();
     loop_thread_ = (void*)uv_thread_self();
+    work_async_ = nullptr;
 }
 
 loop::~loop()
 {
+    if (work_async_ != nullptr)
+    {
+        uv_handle_set_data((uv_handle_t*)work_async_, nullptr);
+        uv_close((uv_handle_t*)work_async_, on_closed_and_free_cb);
+    }
     if (loop_ != nullptr && loop_ != uv_default_loop())
         uv_loop_delete(loop_);
 }
 
 int loop::async(std::function<void()>&& work)
 {
-    auto data = new async_data{};
-    data->work = std::move(work);
-
-    uv_async_t* async = (uv_async_t*)calloc(sizeof(uv_async_t), 1);
-    int r = uv_async_init(loop_, async, on_async_cb);
-    if (r != 0)
+    std::lock_guard<std::mutex> lock(work_mutex_);
+    if (work_async_ == nullptr)
     {
-        free(async);
-        return r;
+        uv_async_t* async = (uv_async_t*)calloc(sizeof(uv_async_t), 1);
+        int r = uv_async_init(loop_, async, on_async_cb);
+        if (r != 0)
+        {
+            free(async);
+            return r;
+        }
+        work_async_ = async;
+        uv_handle_set_data((uv_handle_t*)work_async_, this);
     }
-
-    uv_handle_set_data((uv_handle_t*)async, data);
-    r = uv_async_send(async);
-    if (r != 0)
-    {
-        delete data;
-        uv_close((uv_handle_t*)async, on_closed_and_free_cb);
-    }
-    return r;
+    work_list_.push_back(std::move(work));
+    return uv_async_send(work_async_);
 }
 
 int loop::run_loop(bool once, bool nowait)
@@ -55,16 +57,31 @@ void loop::stop_loop()
     uv_stop(loop_);
 }
 
+void loop::on_async()
+{
+    size_t count = 0;
+    do
+    {
+        std::function<void()> work = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(work_mutex_);
+            count = work_list_.size();
+            if (count == 0)
+                break;
+            work = std::move(work_list_.front());
+            work_list_.pop_front();
+            count--;
+        }
+        if (work)
+            work();
+    } while (count > 0);
+}
+
 void loop::on_async_cb(uv_async_t* handle)
 {
-    async_data* data = (async_data*)uv_handle_get_data((uv_handle_t*)handle);
-    if (data->work)
-    {
-        data->work();
-        data->work = nullptr;
-    }
-    delete data;
-    uv_close((uv_handle_t*)handle, on_closed_and_free_cb);
+    loop* p_this = (loop*)uv_handle_get_data((uv_handle_t*)handle);
+    if (p_this != nullptr)
+        p_this->on_async();
 }
 
 void loop::on_closed_and_free_cb(uv_handle_t* handle)
