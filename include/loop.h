@@ -22,6 +22,8 @@ public:
 
     int async(std::function<void()>&& work);
 
+    bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&& done = nullptr);
+
     inline uv_loop_t* get_loop() const { return loop_; }
 
     int run_loop(bool once = false, bool nowait = false);
