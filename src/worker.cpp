@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <uv.h>
+#include <mutex>
 #include "worker.h"
 
 namespace http
@@ -35,6 +36,8 @@ static void after_worker_cb(uv_work_t* req, int status)
     free(req);
 }
 
+static std::mutex s_work_mutex;
+
 bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&& done, uv_loop_t* loop)
 {
     if (loop == nullptr)
@@ -45,6 +48,8 @@ bool queue_work(std::function<intptr_t()>&& work, std::function<void(intptr_t)>&
     p_data->work = std::move(work);
     p_data->done = std::move(done);
     uv_req_set_data((uv_req_t*)req, p_data);
+
+    std::lock_guard<std::mutex> lock(s_work_mutex);
     return uv_queue_work(loop, req, worker_cb, after_worker_cb) == 0;
 }
 
