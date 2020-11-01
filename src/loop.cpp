@@ -84,7 +84,7 @@ bool loop::queue_work(std::function<intptr_t()>&& work, std::function<void(intpt
         return uv_queue_work(loop_, req, worker_cb, after_worker_cb) == 0;
 
     int r = async([=]() {
-        uv_queue_work(loop_, req, worker_cb, after_worker_cb) == 0;
+        uv_queue_work(loop_, req, worker_cb, after_worker_cb);
     });
     if (r != 0)
     {
