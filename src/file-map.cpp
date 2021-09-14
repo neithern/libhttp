@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <assert.h>
 #include "file-map.h"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -28,10 +29,14 @@ file_map::file_map(const std::string& path, size_t length, long modified_time)
     HANDLE h_file = ::CreateFileW(pwsz, FILE_GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h_file != INVALID_HANDLE_VALUE)
     {
-        if (length == 0)
-            length = ::GetFileSize(h_file, NULL);
-        DWORD high = (DWORD)(length >> 32);
+        DWORD high = sizeof(length) > 4 ? (DWORD)(length >> 32) : 0;
         DWORD low = (DWORD)length;
+        if (length == 0) {
+            low = ::GetFileSize(h_file, &high);
+            length = (static_cast<DWORD64>(high) << 32) | low;
+        }
+
+        assert(!(sizeof(length) == 4 && high != 0));
         HANDLE h_map = ::CreateFileMapping(h_file, NULL, PAGE_READONLY, high, low, NULL);
         if (h_map != NULL)
         {
